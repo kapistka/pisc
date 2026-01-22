@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-misconfig.sh [--dont-output-result] [-i image_link | --tar /path/to/private-image.tar]
@@ -67,6 +67,8 @@ EMOJI_DOCKER='\U1F433' # whale
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 # check debug mode to debug child scripts
 DEBUG=''
 if [[ "$-" == *x* ]]; then

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-grype.sh [-i image_link | --tar /path/to/private-image.tar]
@@ -21,10 +21,12 @@ IMAGE_LINK=''
 IS_ERROR=false
 OFFLINE_FEEDS=false
 RESULT_MESSAGE=''
-export TMPDIR="/tmp"
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
+export TMPDIR=$OUT_DIR
 # check debug mode to debug child scripts
 DEBUG=''
 DEBUG_GRYPE='-q'

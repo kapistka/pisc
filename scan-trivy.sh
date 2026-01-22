@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-trivy.sh [-i image_link | --tar /path/to/private-image.tar]
@@ -22,12 +22,15 @@ IGNORE_ERRORS=false
 IMAGE_LINK=''
 IS_ERROR=false
 RESULT_MESSAGE=''
+OFFLINE_FEEDS=false
 OFFLINE_FEEDS_FLAG=''
 TRIVY_SERVER=''
 TRIVY_TOKEN=''
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 # check debug mode to debug child scripts
 DEBUG=''
 DEBUG_TRIVY='2>/dev/null'

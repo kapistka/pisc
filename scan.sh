@@ -1,18 +1,18 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 set -Eeo pipefail
 
 version() {
-    echo v0.18.2
+    echo v0.19.0-rc1
 }
 
 usage() {
     cat <<EOF
 
 Public OCI-Image Security Checker
-Author: @kapistka, 2025
+Author: @kapistka, 2026
 
                     ##         .
               ## ## ##        ==
@@ -35,18 +35,21 @@ Usage:
   $(basename "${BASH_SOURCE[0]}") [flags] [-i IMAGE | -f FILE | --tar TARFILE]
 
 Flags:
+  --auth-file <string>            Path to the auth file (see 'scan-download-unpack.sh#L14')
   -d, --date                      Check image age against threshold (default: 365 days).
   --d-days <int>                  Custom threshold for build date check (in days). Example: '--d-days 180'.
   -e, --exploits                  Check for vulnerabilities with known exploits (using Trivy + Grype + inthewild.io + empiricalsecurity.com).
   --epss-and                      Use AND logic to combine EPSS score and exploit presence. If disabled, OR logic is applied (default: OR).
   --epss-min <float>              Minimum EPSS score threshold used for filtering vulnerabilities (default: 0.5).
-  -f, --file <string>             Batch scan images from file. Example: '-f images.txt'.
+  --exclusions-file <string>      Path to the exclusions file (see 'check-exclusion.sh#L5')
+  -f, --file <string>             Batch scan images from file. Example: '-f /path/to/images.txt'.
   -h, --help                      Display this help message.
   --ignore-errors                 Ignore errors from external tools and continue execution.
   -i, --image <string>            Single image to scan. Example: '-i r0binak/mtkpi:v1.4'.
   -l, --latest                    Detect non-versioned tags (e.g., ':latest').
   -m, --misconfig                 Scan for dangerous build misconfigurations.
   --offline-feeds                 Use a self-contained offline image with pre-downloaded vulnerability feeds (e.g., :latest-feeds).
+  --output-dir <string>           Output tmp and results file directory. Default /tmp. Example: '--output-dir /tmp'
   --scanner [trivy|grype|all]     Choose which scanner to use: Trivy, Grype, or both (default: all)
   --severity-min <string>         Minimal severity of vulnerabilities [UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL] default [HIGH]
   --show-exploits                 Show exploit details
@@ -56,26 +59,23 @@ Flags:
   -v, --version                   Display version.
   --virustotal-key <string>       VirusTotal API key for malware scanning. Example: '--virustotal-key 0123456789abcdef'.
   --vulners-key <string>          Vulners.com API key (alternative to inthewild.io). Example: '--vulners-key 0123456789ABCDXYZ'.
-  --output-dir <string>           Output tmp and results file directory. Default /tmp. Example: '--output-dir /tmp'
 
 Examples:
   ./scan.sh --virustotal-key 0123456789abcdef -i r0binak/mtkpi:v1.3
   ./scan.sh -delm -i kapistka/log4shell:0.0.3-nonroot --virustotal-key 0123456789abcdef
   ./scan.sh -delm --trivy-server http://trivy.something.io:8080 --trivy-token 0123abZ --virustotal-key 0123456789abcdef -f images.txt
-
-Additional Notes:
-- To authenticate with a registry, refer to 'scan-download-unpack.sh#L14'.
-- To configure exclusions for specific CVEs or other criteria, see 'check-exclusion.sh#L5'.
 EOF
 }
 
 # var init
+AUTH_FILE=''
 CHECK_DATE=false
 CHECK_EXPLOITS=false
 CHECK_LATEST=false
 CHECK_MISCONFIG=false
-EPSS_AND_FLAG=""
-EPSS_MIN="0.5"
+EPSS_AND_FLAG=''
+EPSS_MIN='0.5'
+EXCLUSIONS_FILE=''
 FLAG_IMAGE='-i'
 IGNORE_ERRORS_FLAG=''
 IMAGE_LINK=''
@@ -92,7 +92,7 @@ VIRUSTOTAL_API_KEY=''
 VULNERS_API_KEY=''
 FILE_SCAN=''
 IS_LIST_IMAGES=false
-OUT_DIR="/tmp"
+OUT_DIR='/tmp'
 OFFLINE_FEEDS_DIR=$OUT_DIR'/.cache'
 
 C_BLU='\033[1;34m'
@@ -110,7 +110,7 @@ EMOJI_TAR='\U1F4E6'    # package
 EMOJI_LIST='\U1F4C3'   # page with curl
 EMOJI_DOCKER='\U1F433' # whale
 
-U_LINE2='\U02550\U02550\U02550\U02550\U02550\U02550\U02550\U02550'
+U_LINE2='\U02550\U02550\U02550\U02550\U02550\U02550\U02550\U02550\U02550'
 U_LINE=$U_LINE2$U_LINE2$U_LINE2$U_LINE2$U_LINE2$U_LINE2
 
 # it is important for run *.sh by ci-runner
@@ -134,27 +134,22 @@ debug_set() {
 
 # read the options
 debug_set false
-ARGS=$(getopt -o dehf:i:lmv --long date,epss-and,epss-min:,exploits,d-days:,help,file:,ignore-errors,image:,latest,misconfig,offline-feeds,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key: -n $0 -- "$@")
+ARGS=$(getopt -o dehf:i:lmv --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key: -n $0 -- "$@")
 eval set -- "$ARGS"
 debug_set true
 
 # extract options and their arguments into variables.
 while true ; do
     case "$1" in
+        --auth-file)
+            case "$2" in
+                "") shift 2 ;;
+                *) AUTH_FILE=$2 ; shift 2 ;;
+            esac ;;
         -d|--date)
             case "$2" in
                 "") shift 1 ;;
                 *) CHECK_DATE=true ; shift 1 ;;
-            esac ;;
-        --epss-and)
-            case "$2" in
-                "") shift 1 ;;
-                *) EPSS_AND_FLAG="--epss-and" ; shift 1 ;;
-            esac ;;
-        --epss-min)
-            case "$2" in
-                "") shift 2 ;;
-                *) EPSS_MIN=$2 ; shift 2 ;;
             esac ;;
         --d-days)
             case "$2" in
@@ -166,12 +161,27 @@ while true ; do
                 "") shift 1 ;;
                 *) CHECK_EXPLOITS=true ; shift 1 ;;
             esac ;;
-        -h|--help) usage ; exit 0;;
+        --epss-and)
+            case "$2" in
+                "") shift 1 ;;
+                *) EPSS_AND_FLAG="--epss-and" ; shift 1 ;;
+            esac ;;
+        --epss-min)
+            case "$2" in
+                "") shift 2 ;;
+                *) EPSS_MIN=$2 ; shift 2 ;;
+            esac ;;
+        --exclusions-file)
+            case "$2" in
+                "") shift 2 ;;
+                *) EXCLUSIONS_FILE=$2 ; shift 2 ;;
+            esac ;;
         -f|--file)
             case "$2" in
                 "") shift 2 ;;
                 *) FILE_SCAN=$2 ; CHECK_LOCAL=false ; shift 2 ;;
             esac ;;
+        -h|--help) usage ; exit 0;;
         --ignore-errors)
             case "$2" in
                 "") shift 1 ;;
@@ -196,6 +206,11 @@ while true ; do
             case "$2" in
                 "") shift 1 ;;
                 *) OFFLINE_FEEDS_FLAG='--offline-feeds' ; OFFLINE_FEEDS_DIR="/opt/db"; shift 1 ;;
+            esac ;;
+        --output-dir)
+            case "$2" in
+                "") shift 2 ;;
+                *) OUT_DIR=$2 ; OFFLINE_FEEDS_DIR=$OUT_DIR'/.cache' ; shift 2 ;;
             esac ;;
         --scanner)
             case "$2" in
@@ -238,38 +253,35 @@ while true ; do
                 "") shift 2 ;;
                 *) debug_set false ; VULNERS_API_KEY=$2 ; debug_set true ; CHECK_EXPLOITS=true ; shift 2 ;;
             esac ;;
-        --output-dir)
-            case "$2" in
-                "") shift 2 ;;
-                *) debug_set false ; OUT_DIR=$2 ; debug_set true ; CHECK_EXPLOITS=true ; shift 2 ;;
-            esac ;;
         --) shift ; break ;;
         *) echo "Wrong usage! Try '$0 --help' for more information." ; exit 2 ;;
     esac
 done
 
-export OUT_DIR="${OUT_DIR}"
-export TMPDIR=$OUT_DIR
+export OUT_DIR=$OUT_DIR
 # remove exclusions-cache-csv, exploits-info
-eval "rm -f $OUT_DIR/whitelist.yaml.csv *.expl"
+eval "rm -f $OUT_DIR/whitelist.yaml.csv $OUT_DIR/*.expl"
 
 # arguments check
 if [ ! -z "$FILE_SCAN" ]; then
-    if [ -f $FILE_SCAN ]; then
-        IS_LIST_IMAGES=true
-        LIST_IMAGES=()
-        LIST_IMAGES=(`awk '{print $1}' $FILE_SCAN`)
-    elif [ -f $OUT_DIR'/'$FILE_SCAN ]; then
-        IS_LIST_IMAGES=true
-        LIST_IMAGES=()
-        LIST_IMAGES=(`awk '{print $1}' $OUT_DIR'/'$FILE_SCAN`)
-    else
+    if [ -f $OUT_DIR'/'$FILE_SCAN ]; then
+        FILE_SCAN=$OUT_DIR'/'$FILE_SCAN
+    elif [ -f $SCRIPTPATH'/'$FILE_SCAN ]; then
+        FILE_SCAN=$SCRIPTPATH'/'$FILE_SCAN
+    fi
+    if [ ! -f $FILE_SCAN ]; then
         echo "$FILE_SCAN >>> File -f not found. Try '$0 --help' for more information."
         exit 2
+    else
+        IS_LIST_IMAGES=true
+        LIST_IMAGES=()
+        LIST_IMAGES=(`awk '{print $1}' $FILE_SCAN`)    
     fi
 elif [ ! -z "$LOCAL_FILE" ]; then
     if [ -f $OUT_DIR'/'$LOCAL_FILE ]; then
         LOCAL_FILE=$OUT_DIR'/'$LOCAL_FILE
+    elif [ -f $SCRIPTPATH'/'$LOCAL_FILE ]; then
+        LOCAL_FILE=$SCRIPTPATH'/'$LOCAL_FILE
     fi
     if [ ! -f $LOCAL_FILE ]; then
         echo "$LOCAL_FILE >>> File --tar not found. Try '$0 --help' for more information."
@@ -285,6 +297,35 @@ else
         exit 2
     fi
 fi
+# AUTH_FILE
+if [ ! -z "$AUTH_FILE" ]; then
+    if [ -f $OUT_DIR'/'$AUTH_FILE ]; then
+        AUTH_FILE=$OUT_DIR'/'$AUTH_FILE
+    elif [ -f $SCRIPTPATH'/'$AUTH_FILE ]; then
+        AUTH_FILE=$SCRIPTPATH'/'$AUTH_FILE`
+    fi
+    if [ ! -f $AUTH_FILE ]; then
+        echo "$AUTH_FILE >>> Auth file not found. Try '$0 --help' for more information."
+        exit 2
+    else
+        export AUTH_FILE=$AUTH_FILE
+    fi
+fi    
+# EXCLUSIONS_FILE
+if [ ! -z "$EXCLUSIONS_FILE" ]; then
+    if [ -f $OUT_DIR'/'$EXCLUSIONS_FILE ]; then
+        EXCLUSIONS_FILE=$OUT_DIR'/'$EXCLUSIONS_FILE
+    elif [ -f $SCRIPTPATH'/'$EXCLUSIONS_FILE ]; then
+        EXCLUSIONS_FILE=$SCRIPTPATH'/'$EXCLUSIONS_FILE`
+    fi
+    if [ ! -f $EXCLUSIONS_FILE ]; then
+        echo "$EXCLUSIONS_FILE >>> Exclusions file not found. Try '$0 --help' for more information."
+        exit 2
+    else
+        export EXCLUSIONS_FILE=$EXCLUSIONS_FILE
+    fi
+fi
+# SCANNERS
 if [[ "$SCANNER" != "trivy" && "$SCANNER" != "grype" && "$SCANNER" != "all" ]]; then
     echo "Invalid --scanner value: $SCANNER. Must be one of: trivy, grype, all. Try '$0 --help' for more information."
     exit 2
@@ -307,16 +348,16 @@ if [ "$CHECK_EXPLOITS" = false ] && [ "$CHECK_DATE" = false ] &&  [ "$CHECK_LATE
     echo "Nothing check.  Try '$0 --help' for more information."
     exit 2
 fi
-#check directory exists and not empty
-if [[ -z $OFFLINE_FEEDS_FLAG ]]; then
-  export OFFLINE_FEEDS_DIR=$OFFLINE_FEEDS_DIR
-elif [[ "$OFFLINE_FEEDS_DIR" == "/opt/db" ]] && [[ "$(ls -A "$OFFLINE_FEEDS_DIR"|wc -l)" != "0" ]]; then
-  export OFFLINE_FEEDS_DIR=$OFFLINE_FEEDS_DIR
-else
-  export OFFLINE_FEEDS_DIR=$OUT_DIR'/.cache'
-  echo -e "$C_YLW Invalid flag --offline-feeds, DB is empty and will be downloaded\033[0m"
-fi
 debug_set true
+#check OFFLINE_FEEDS_DIR exists and not empty
+if [[ -z $OFFLINE_FEEDS_FLAG ]]; then
+    export OFFLINE_FEEDS_DIR=$OFFLINE_FEEDS_DIR
+elif [[ "$OFFLINE_FEEDS_DIR" == "/opt/db" ]] && [[ "$(ls -A "$OFFLINE_FEEDS_DIR"|wc -l)" != "0" ]]; then
+    export OFFLINE_FEEDS_DIR=$OFFLINE_FEEDS_DIR
+else
+    export OFFLINE_FEEDS_DIR=$OUT_DIR'/.cache'
+    echo -e "$C_YLW Invalid flag --offline-feeds, DB is empty and will be downloaded\033[0m"
+fi
 
 # check tools exist
 IS_TOOLS_NOT_EXIST=false

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Show mime-types statistic for image
 
@@ -26,6 +26,8 @@ IMAGE_LINK=''
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 # check debug mode to debug child scripts
 DEBUG=''
 if [[ "$-" == *x* ]]; then

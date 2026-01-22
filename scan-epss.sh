@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-epss.sh [--cve cve_id] [--dont-output-result] [-i image_link]
@@ -28,6 +28,8 @@ URL_BASE='https://epss.empiricalsecurity.com'
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 # check debug mode to debug child scripts and external tools
 DEBUG_CURL='-sf '
 if [[ "$-" == *x* ]]; then
@@ -114,7 +116,7 @@ if  [ "$IS_CACHED" = false ]; then
         F="epss_scores-${d}.csv.gz"
         URL="${URL_BASE}/${F}"
         echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> downloading EPSS-${d} db\033[0K\r"
-        if curl -f $DEBUG_CURL -L "$URL" -o $GZ_FILE; then
+        if curl --connect-timeout 10 --max-time 10 -f $DEBUG_CURL -L "$URL" -o $GZ_FILE; then
             IS_DOWNLOADED=true
             break
         fi

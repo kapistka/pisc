@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-inthewild-io.sh [--cve cve_id] [--dont-output-result] [-i image_link]
@@ -28,6 +28,8 @@ OFFLINE_FEEDS=false
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 # check debug mode to debug child scripts and external tools
 DEBUG_CURL='-sf '
 if [[ "$-" == *x* ]]; then
@@ -143,7 +145,7 @@ fi
 if  [ "$IS_CACHED" = false ]; then
     echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> downloading inthewild db\033[0K\r"
     rm -f $DB_FILE
-    curl $DEBUG_CURL -L https://pub-4c1eae2a180542b19ea7c88f1e4ccf07.r2.dev/inthewild.db \
+    curl --connect-timeout 10 $DEBUG_CURL -L https://pub-4c1eae2a180542b19ea7c88f1e4ccf07.r2.dev/inthewild.db \
             -o $DB_FILE \
             || error_exit "error r2.dev: please check internet connection and retry"
 

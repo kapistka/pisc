@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-download-unpack.sh [-i image_link | --tar /path/to/private-image.tar]
@@ -11,7 +11,7 @@
 # Examples
 # ./scan-download-unpack.sh -i gcr.io/distroless/base-debian11:nonroot-amd64
 
-# To authenticate in the registry, put file auth.json in script directory
+# To authenticate in the registry, put file auth.json in script directory or run ./scan.sh --auth-path
 # See format: https://github.com/containers/image/blob/main/docs/containers-auth.json.5.md#format
 
 # Example for user: oauth and password: ABCDEFG
@@ -42,6 +42,9 @@ DONT_DOWNLOAD=false
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
+: "${AUTH_FILE:=$SCRIPTPATH/auth.json}"
 # check debug mode to debug child scripts and external tools
 DEBUG_SKOPEO='> /dev/null 2>&1'
 DEBUG_TAR='2>/dev/null'
@@ -59,7 +62,6 @@ debug_null() {
 RES_FILE=$OUT_DIR'/scan-download-unpack.result'
 
 SKOPEO_AUTH_FLAG=''
-AUTH_FILE=$SCRIPTPATH'/auth.json'
 if [ -f "$AUTH_FILE" ]; then
     SKOPEO_AUTH_FLAG="--authfile=$AUTH_FILE"
 fi

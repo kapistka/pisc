@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-new-tags.sh [--dont-output-result] -i image_link
@@ -31,6 +31,8 @@ EMOJI_INFO='\U1F4A1' # bulb
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 # check debug mode to debug child scripts and external tools
 DEBUG_SKOPEO=''
 if [[ "$-" == *x* ]]; then

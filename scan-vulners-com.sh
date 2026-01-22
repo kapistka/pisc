@@ -28,6 +28,8 @@ VULNERS_API_KEY=''
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 # check debug mode to debug child scripts and external tools
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 DEBUG=''
 DEBUG_CURL='-s '
 if [[ "$-" == *x* ]]; then
@@ -110,7 +112,7 @@ get_cve_info()
 {
     eval "rm -f $JSON_FILE"
     debug_set false
-    curl $DEBUG_CURL -XPOST --compressed -L https://vulners.com/api/v3/search/id \
+    curl --connect-timeout 10 $DEBUG_CURL -XPOST --compressed -L https://vulners.com/api/v3/search/id \
           -o $JSON_FILE \
           -H 'Content-Type: application/json' --data-binary @- <<EOF || error_exit "error vulners.com: please check internet connection and retry"
         {

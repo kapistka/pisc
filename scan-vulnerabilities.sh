@@ -1,6 +1,6 @@
 #!/bin/bash
 # Public OCI-Image Security Checker
-# Author: @kapistka, 2025
+# Author: @kapistka, 2026
 
 # Usage
 #     ./scan-vulnerabilities.sh [--dont-output-result] [-i image_link | --tar /path/to/private-image.tar]
@@ -50,6 +50,8 @@ EMOJI_EXPLOITATION='\U1F480' # SKULL
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
+# get exported var with default value if it is empty
+: "${OUT_DIR:=/tmp}"
 # check debug mode to debug child scripts
 DEBUG=''
 if [[ "$-" == *x* ]]; then
@@ -357,7 +359,7 @@ if [ "$IS_EXPLOITABLE" = true ]; then
             if [[ $i -gt 1 ]]; then
                 CVE_ID=$(echo "${LINES[$i]}" | awk '{print $1}')
                 if [[ "$CVE_ID" == CVE-* ]]; then
-                    F="$SCRIPTPATH/$CVE_ID.expl"
+                    F="$OUT_DIR/$CVE_ID.expl"
                     if [[ -f "$F" ]]; then
                         RESULT_MESSAGE_WITH_EXPL+="$(cat "$F")"$'\n'
                     fi
