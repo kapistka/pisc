@@ -21,6 +21,7 @@ IMAGE_LINK=''
 IS_ERROR=false
 OFFLINE_FEEDS=false
 RESULT_MESSAGE=''
+export TMPDIR="/tmp"
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
@@ -43,20 +44,19 @@ debug_set() {
 }
 
 # default tar path
-INPUT_FILE=$SCRIPTPATH/image.tar
+INPUT_FILE=$OUT_DIR/image.tar
 # grype output
-CSV_FILE=$SCRIPTPATH'/scan-grype.csv'
+CSV_FILE=$OUT_DIR'/scan-grype.csv'
 # result this script for main output
-RES_FILE=$SCRIPTPATH'/scan-grype.result'
+RES_FILE=$OUT_DIR'/scan-grype.result'
 # error file
-ERROR_FILE=$SCRIPTPATH'/scan-grype.error'
+ERROR_FILE=$OUT_DIR'/scan-grype.error'
 # template file
 TMPL_FILE=$SCRIPTPATH'/grype.tmpl'
 eval "rm -f $CSV_FILE $RES_FILE $ERROR_FILE"
 touch $RES_FILE
-
 # exception handling
-error_exit() 
+error_exit()
 {
     if  [ "$IS_ERROR" = false ]; then
         IS_ERROR=true
@@ -107,11 +107,22 @@ done
 echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> scan vulnerabilities by grype\033[0K\r"
 
 # offline mode
-if [ "$OFFLINE_FEEDS" = true ] ; then
-    export GRYPE_DB_AUTO_UPDATE=false
+if [[ "$OFFLINE_FEEDS" = true ]] && [[ -d "/opt/db/grype" ]]; then
+  export GRYPE_DB_AUTO_UPDATE=false
+  if (touch "/opt/db/grype/.check_rw" ) 2>/dev/null; then
+    export GRYPE_DB_CACHE_DIR=/opt/db/grype
+  else
+    export GRYPE_DB_CACHE_DIR="$OUT_DIR"'/.cache/grype'
+    if [[ ! -d "$GRYPE_DB_CACHE_DIR" ]]; then
+      mkdir -p "$OUT_DIR"'/.cache/grype' && cp -r /opt/db/grype/ "$OUT_DIR"'/.cache/'
+    fi
+  fi
 else
     export GRYPE_DB_AUTO_UPDATE=true
-fi 
+    export GRYPE_DB_CACHE_DIR=$OUT_DIR'/.cache/grype'
+    mkdir -p "$GRYPE_DB_CACHE_DIR"
+
+fi
 
 # use one-string template
 

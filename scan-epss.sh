@@ -5,7 +5,7 @@
 # Usage
 #     ./scan-epss.sh [--cve cve_id] [--dont-output-result] [-i image_link]
 # Available options:
-#     --cve string                      specify single cve else script trying to read scan-vulnerabilities.cve 
+#     --cve string                      specify single cve else script trying to read scan-vulnerabilities.cve
 #     --dont-output-result              don't output result into console, only into file
 #     -i, --image string                only this image will be checked. Example: -i kapistka/log4shell:0.0.3-nonroot
 #     --ignore-errors                   ignore inthewild errors (instead, write to $ERROR_FILE)
@@ -34,11 +34,11 @@ if [[ "$-" == *x* ]]; then
     DEBUG_CURL='-v '
 fi
 
-INPUT_FILE=$SCRIPTPATH'/scan-vulnerabilities.cve'
-DB_FILE=$SCRIPTPATH'/epss.csv'
-GZ_FILE=$SCRIPTPATH'/epss.csv.gz'
-RES_FILE=$SCRIPTPATH'/epss.result'
-ERROR_FILE=$SCRIPTPATH'/epss.error'
+INPUT_FILE=$OUT_DIR'/scan-vulnerabilities.cve'
+DB_FILE=$OFFLINE_FEEDS_DIR'/epss.csv'
+GZ_FILE=$OUT_DIR'/epss.csv.gz'
+RES_FILE=$OUT_DIR'/epss.result'
+ERROR_FILE=$OUT_DIR'/epss.error'
 eval "rm -f $RES_FILE $ERROR_FILE"
 touch $RES_FILE
 
@@ -68,7 +68,7 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) CVE=$2 ; shift 2 ;;
-            esac ;; 
+            esac ;;
         --dont-output-result)
             case "$2" in
                 "") shift 1 ;;
@@ -78,7 +78,7 @@ while true ; do
             case "$2" in
                 "") shift 1 ;;
                 *) IGNORE_ERRORS=true ; shift 1 ;;
-            esac ;; 
+            esac ;;
         -i|--image)
             case "$2" in
                 "") shift 2 ;;
@@ -116,7 +116,7 @@ if  [ "$IS_CACHED" = false ]; then
         echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> downloading EPSS-${d} db\033[0K\r"
         if curl -f $DEBUG_CURL -L "$URL" -o $GZ_FILE; then
             IS_DOWNLOADED=true
-            break   
+            break
         fi
     done
     if  [ "$IS_DOWNLOADED" = true ]; then
@@ -160,9 +160,9 @@ else
         do
            get_cve_info ${LIST_EPSS[$i]}
         done
-    else 
+    else
         error_exit "$INPUT_FILE not found"
-    fi      
+    fi
 fi
 
 exit 0
