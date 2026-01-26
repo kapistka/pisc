@@ -20,10 +20,16 @@ RUN TODAY=$(date -u +%F) \
   && zcat /tmp/epss.csv.gz > /opt/db/epss.csv \
   && rm /tmp/epss.csv.gz
 
+RUN tmp_file=$(mktemp) && \
+  curl -sL "https://github.com/YARAHQ/yara-forge/releases/latest/download/yara-forge-rules-extended.zip" -o "$tmp_file" && \
+  unzip -q -o "$tmp_file" -d "/opt/db/yara" && \
+  rm -f "$tmp_file"
+
 RUN mkdir -p ${GRYPE_DB_CACHE_DIR} ${TRIVY_CACHE_DIR} \
   && grype db update \
   && trivy --cache-dir ${TRIVY_CACHE_DIR} image --download-db-only \
   && chown -R 65532:65532 /opt/db
+
 
 USER nonroot
 WORKDIR /home/nonroot

@@ -3,7 +3,7 @@ FROM aquasec/trivy:0.68.2 AS trivy
 FROM alpine:3
 
 RUN apk update && apk upgrade && apk --no-cache add bash coreutils curl jq yq util-linux skopeo file tar sqlite gnupg \
-  && GRYPE_VERSION="0.104.4" \
+  && GRYPE_VERSION="0.105.0" \
   && curl -sSL "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" -o grype.tar.gz \
   && tar -xzf grype.tar.gz -C /usr/local/bin grype \
   && rm grype.tar.gz
@@ -31,6 +31,7 @@ COPY check-exclusions.sh \
   scan-virustotal.sh \
   scan-vulners-com.sh \
   scan-vulnerabilities.sh \
+  scan-yara.sh \
   trivy.tmpl \
   ./
 

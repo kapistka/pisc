@@ -5,7 +5,7 @@
 set -Eeo pipefail
 
 version() {
-    echo v0.19.0-rc1
+    echo v0.20.0
 }
 
 usage() {
@@ -275,7 +275,7 @@ if [ ! -z "$FILE_SCAN" ]; then
     else
         IS_LIST_IMAGES=true
         LIST_IMAGES=()
-        LIST_IMAGES=(`awk '{print $1}' $FILE_SCAN`)    
+        LIST_IMAGES=(`awk '{print $1}' $FILE_SCAN`)
     fi
 elif [ ! -z "$LOCAL_FILE" ]; then
     if [ -f $OUT_DIR'/'$LOCAL_FILE ]; then
@@ -310,7 +310,7 @@ if [ ! -z "$AUTH_FILE" ]; then
     else
         export AUTH_FILE=$AUTH_FILE
     fi
-fi    
+fi
 # EXCLUSIONS_FILE
 if [ ! -z "$EXCLUSIONS_FILE" ]; then
     if [ -f $OUT_DIR'/'$EXCLUSIONS_FILE ]; then
@@ -492,19 +492,46 @@ scan_image() {
         fi
     fi
 
-    # virustotal scanning
+    # # --- MALWARE SCANNING (YARA + VIRUSTOTAL) ---
     debug_set false
-    if [ ! -z "$VIRUSTOTAL_API_KEY" ]; then
-        /bin/bash $DEBUG$SCRIPTPATH/scan-virustotal.sh --dont-output-result --virustotal-key $VIRUSTOTAL_API_KEY $FLAG_IMAGE $IMAGE_LINK $IGNORE_ERRORS_FLAG
-        VIRUSTOTAL_RESULT_MESSAGE=$(<$OUT_DIR/scan-virustotal.result)
-        if [ "$VIRUSTOTAL_RESULT_MESSAGE" != "OK" ] && [ "$VIRUSTOTAL_RESULT_MESSAGE" != "OK (whitelisted)" ]; then
-            IS_MALWARE=true
-        elif [ "$VIRUSTOTAL_RESULT_MESSAGE" == "OK (whitelisted)" ] ; then
-            IS_EXCLUDED=true
-            EXCLUDED_STR="${EXCLUDED_STR:+$EXCLUDED_STR$'\n'}   malware whitelisted"
+    # 1. YARA SCAN
+    YARA_RESULT_MESSAGE=""
+    IS_YARA_FOUND=false
+    if [ -f "$SCRIPTPATH/scan-yara.sh" ]; then
+      set +e
+      /bin/bash $DEBUG$SCRIPTPATH/scan-yara.sh $OFFLINE_FEEDS_FLAG $FLAG_IMAGE $IMAGE_LINK
+      YARA_EXIT_CODE=$?
+      set -e
+
+      if [ $YARA_EXIT_CODE -eq 1 ]; then
+          # Если скрипт вернул 1 (значит нашел малварь)
+          IS_YARA_FOUND=true
+          IS_MALWARE=true
+          EMOJI_MALWARE='\U1F9A0'
+          if [ -s "$OUT_DIR/scan-yara.result" ]; then
+              YARA_RESULT_MESSAGE=$(cat "$OUT_DIR/scan-yara.result")
+              YARA_RESULT_MESSAGE="$EMOJI_MALWARE $C_RED$IMAGE_LINK$C_NIL >>> YARA MALWARE DETECTED!"$'\n'"$YARA_RESULT_MESSAGE"
+          fi
         fi
     fi
-    debug_set true
+    # 2. VIRUSTOTAL SCAN (API, Slow) - Only if YARA found nothing
+    VIRUSTOTAL_RESULT_MESSAGE="OK"
+
+    if [ "$IS_YARA_FOUND" = false ]; then
+      if [ ! -z "$VIRUSTOTAL_API_KEY" ]; then
+          /bin/bash $DEBUG$SCRIPTPATH/scan-virustotal.sh --dont-output-result --virustotal-key $VIRUSTOTAL_API_KEY $FLAG_IMAGE $IMAGE_LINK $IGNORE_ERRORS_FLAG
+          VIRUSTOTAL_RESULT_MESSAGE=$(<$OUT_DIR/scan-virustotal.result)
+          if [ "$VIRUSTOTAL_RESULT_MESSAGE" != "OK" ] && [ "$VIRUSTOTAL_RESULT_MESSAGE" != "OK (whitelisted)" ]; then
+              IS_MALWARE=true
+          elif [ "$VIRUSTOTAL_RESULT_MESSAGE" == "OK (whitelisted)" ] ; then
+              IS_EXCLUDED=true
+              EXCLUDED_STR="${EXCLUDED_STR:+$EXCLUDED_STR$'\n'}   malware whitelisted"
+          fi
+      fi
+    else
+      # Если YARA нашла, используем её сообщение как результат малвари
+      VIRUSTOTAL_RESULT_MESSAGE="$YARA_RESULT_MESSAGE"
+    fi
 
     # exploitable vulnerabilities scanning
     if [ "$CHECK_EXPLOITS" = true ]; then
@@ -529,6 +556,7 @@ scan_image() {
         fi
     fi
 
+    debug_set true
     # old build date checking
     # after exploits checking - force CHECK_DATE = true
     if [ "$CHECK_DATE" = true ]; then
