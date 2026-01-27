@@ -5,7 +5,8 @@ set -Eeuo pipefail
 # --- CONFIG ---
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 
-OUT_DIR="${OUT_DIR:-/tmp}"
+: "${OUT_DIR:=/tmp}"
+: "${OFFLINE_FEEDS_DIR:=/tmp/.cache}"
 # Храним правила в общем кэше (.cache/yara)
 CACHE_DIR=$OUT_DIR'/.cache'
 YARA_RULES_DIR="$CACHE_DIR/yara"
