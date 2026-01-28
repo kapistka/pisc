@@ -5,7 +5,7 @@
 set -Eeo pipefail
 
 version() {
-    echo v0.19.0-rc1
+    echo v0.19.0-rc2
 }
 
 usage() {
@@ -134,7 +134,7 @@ debug_set() {
 
 # read the options
 debug_set false
-ARGS=$(getopt -o dehf:i:lmv --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key: -n $0 -- "$@")
+ARGS=$(getopt -o dehf:i:lmv --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key: -n $0 -- "$@")
 eval set -- "$ARGS"
 debug_set true
 
@@ -275,7 +275,7 @@ if [ ! -z "$FILE_SCAN" ]; then
     else
         IS_LIST_IMAGES=true
         LIST_IMAGES=()
-        LIST_IMAGES=(`awk '{print $1}' $FILE_SCAN`)    
+        LIST_IMAGES=(`awk '{print $1}' $FILE_SCAN`)
     fi
 elif [ ! -z "$LOCAL_FILE" ]; then
     if [ -f $OUT_DIR'/'$LOCAL_FILE ]; then
@@ -310,7 +310,7 @@ if [ ! -z "$AUTH_FILE" ]; then
     else
         export AUTH_FILE=$AUTH_FILE
     fi
-fi    
+fi
 # EXCLUSIONS_FILE
 if [ ! -z "$EXCLUSIONS_FILE" ]; then
     if [ -f $OUT_DIR'/'$EXCLUSIONS_FILE ]; then
