@@ -157,12 +157,12 @@ echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> scan vulnerabilities by trivy\03
 debug_set false
 if [ -z "$TRIVY_TOKEN" ]; then
     debug_set true
-    eval "trivy image --cache-dir $OFFLINE_FEEDS_DIR --scanners vuln $OFFLINE_FEEDS_FLAG --format template --template @$TMPL_FILE -o $CSV_FILE --input $INPUT_FILE $DEBUG_TRIVY" || \
+    eval "trivy image --disable-telemetry --cache-dir $OFFLINE_FEEDS_DIR --scanners vuln $OFFLINE_FEEDS_FLAG --format template --template @$TMPL_FILE -o $CSV_FILE --input $INPUT_FILE $DEBUG_TRIVY" || \
     error_exit "error trivy client"
 # if trivy-token is specified, then we use the trivy-server
 else
-    eval "trivy image --cache-dir $OFFLINE_FEEDS_DIR --scanners vuln $OFFLINE_FEEDS_FLAG --format template --template @$TMPL_FILE -o $CSV_FILE --input $INPUT_FILE --server $TRIVY_SERVER --token $TRIVY_TOKEN --timeout 15m $DEBUG_TRIVY" || \
-    eval "trivy image --cache-dir $OFFLINE_FEEDS_DIR --scanners vuln $OFFLINE_FEEDS_FLAG --format template --template @$TMPL_FILE -o $CSV_FILE --input $INPUT_FILE $DEBUG_TRIVY" || \
+    eval "trivy image --disable-telemetry --cache-dir $OFFLINE_FEEDS_DIR --scanners vuln $OFFLINE_FEEDS_FLAG --format template --template @$TMPL_FILE -o $CSV_FILE --input $INPUT_FILE --server $TRIVY_SERVER --token $TRIVY_TOKEN --timeout 15m $DEBUG_TRIVY" || \
+    eval "trivy image --disable-telemetry --cache-dir $OFFLINE_FEEDS_DIR --scanners vuln $OFFLINE_FEEDS_FLAG --format template --template @$TMPL_FILE -o $CSV_FILE --input $INPUT_FILE $DEBUG_TRIVY" || \
     error_exit "error trivy server/client"
 fi
 debug_set true
