@@ -35,6 +35,8 @@ COPY check-exclusions.sh \
   trivy.tmpl \
   ./
 
-RUN chown -R 65532:65532 *.sh && chmod 500 /home/nonroot
+RUN chown -R 65532:65532 *.sh && \
+  chmod 555 /home/nonroot && \
+  chmod 755 /home/nonroot/*.sh
 
 USER nonroot

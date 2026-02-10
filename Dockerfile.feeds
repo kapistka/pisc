@@ -22,7 +22,7 @@ RUN TODAY=$(date -u +%F) \
 
 RUN set -euo pipefail; \
   curl -fsSL "https://github.com/YARAHQ/yara-forge/releases/latest/download/yara-forge-rules-extended.zip" \
-    -o "/tmp/yara-forge-rules-extended.zip"; \
+  -o "/tmp/yara-forge-rules-extended.zip"; \
   mkdir -p "/opt/db/yara"; \
   unzip -o "/tmp/yara-forge-rules-extended.zip" -d "/tmp/unpacked"; \
   mv -f "/tmp/unpacked/packages/extended/yara-rules-extended.yar" "/opt/db/yara/rules.yar"; \
@@ -37,7 +37,7 @@ RUN mkdir -p ${GRYPE_DB_CACHE_DIR} ${TRIVY_CACHE_DIR} \
   && mv ${TRIVY_CACHE_DIR}/fanal/fanal.db ${TRIVY_CACHE_DIR}/fanal/fanal.db.tmp \
   && ln -s /tmp/.cache/trivy/fanal/fanal.db ${TRIVY_CACHE_DIR}/fanal/fanal.db \
   && chown -R 65532:65532 /opt/db \
-  && chmod -R 500 /opt/db
+  && chmod -R 755 /opt/db
 
 USER nonroot
 WORKDIR /home/nonroot
