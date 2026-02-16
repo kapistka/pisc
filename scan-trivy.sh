@@ -50,7 +50,7 @@ debug_set() {
 }
 
 # trivy feeds dir
-TRIVY_DB_CACHE_DIR=$PISC_FEEDS_DIR'/trivy' 
+TRIVY_DB_CACHE_DIR=$PISC_FEEDS_DIR'/trivy'
 # default tar path
 INPUT_FILE=$PISC_OUT_DIR/image.tar
 # trivy output
@@ -101,7 +101,7 @@ while true ; do
         --offline-feeds)
             case "$2" in
                 "") shift 1 ;;
-                *) OFFLINE_FEEDS_FLAG='--skip-db-update' ; shift 1 ;;
+                *) OFFLINE_FEEDS_FLAG='--skip-db-update --skip-java-db-update' ; shift 1 ;;
             esac ;;
         --tar)
             case "$2" in
