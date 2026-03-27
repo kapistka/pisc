@@ -263,34 +263,49 @@ LIST_length=${#LIST_CVE[@]}
 # cve file for exploit and epss
 cut -d'|' -f1 $TMP_FILE > $CVE_FILE
 
-# exploits
+# exploits + epss
+# If CVE_DB_PATH is set, use local cve-db (offline, no internet required).
+# Otherwise fall back to the original online sources.
 LIST_EXPL=()
-if [ "$IS_ERROR" = false ]; then
-    # exploit analysis by vulners.com
-    if [ ! -z "$VULNERS_API_KEY" ]; then
-        debug_set false
-        /bin/bash $DEBUG$SCRIPTPATH/scan-vulners-com.sh --dont-output-result -i $IMAGE_LINK --vulners-key $VULNERS_API_KEY $IGNORE_ERRORS_FLAG
-        debug_set true
-        LIST_EXPL+=($(<$PISC_OUT_DIR/scan-vulners-com.result))
-    # exploit analysis by inthewild.io
-    else
-        /bin/bash $DEBUG$SCRIPTPATH/scan-inthewild-io.sh --dont-output-result -i $IMAGE_LINK $OFFLINE_FEEDS_FLAG $IGNORE_ERRORS_FLAG
-        LIST_EXPL+=($(<$PISC_OUT_DIR/scan-inthewild-io.result))
-    fi
-fi
-
-# epss
 LIST_EPSS=()
 if [ "$IS_ERROR" = false ]; then
-    /bin/bash $DEBUG$SCRIPTPATH/scan-epss.sh --dont-output-result -i $IMAGE_LINK $OFFLINE_FEEDS_FLAG $IGNORE_ERRORS_FLAG
-    while IFS= read -r l; do
-        if [[ "$l" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
-            l=$(printf "%.2f" "$l")
+    if [ -n "$CVE_DB_PATH" ]; then
+        # ── local cve-db mode ─────────────────────────────────────────────────
+        # scan-cve-db.sh writes both epss.result and scan-inthewild-io.result
+        /bin/bash $DEBUG$SCRIPTPATH/scan-cve-db.sh --dont-output-result --epss-min $EPSS_MIN -i $IMAGE_LINK $OFFLINE_FEEDS_FLAG $IGNORE_ERRORS_FLAG
+        LIST_EXPL+=($(<$PISC_OUT_DIR/scan-inthewild-io.result))
+        while IFS= read -r l; do
+            if [[ "$l" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                l=$(printf "%.2f" "$l")
+            else
+                l="-"
+            fi
+            LIST_EPSS+=("$l")
+        done < "$PISC_OUT_DIR/epss.result"
+    else
+        # ── online mode (original behaviour) ─────────────────────────────────
+        # exploit analysis by vulners.com
+        if [ ! -z "$VULNERS_API_KEY" ]; then
+            debug_set false
+            /bin/bash $DEBUG$SCRIPTPATH/scan-vulners-com.sh --dont-output-result -i $IMAGE_LINK --vulners-key $VULNERS_API_KEY $IGNORE_ERRORS_FLAG
+            debug_set true
+            LIST_EXPL+=($(<$PISC_OUT_DIR/scan-vulners-com.result))
+        # exploit analysis by inthewild.io
         else
-            l="-"
+            /bin/bash $DEBUG$SCRIPTPATH/scan-inthewild-io.sh --dont-output-result -i $IMAGE_LINK $OFFLINE_FEEDS_FLAG $IGNORE_ERRORS_FLAG
+            LIST_EXPL+=($(<$PISC_OUT_DIR/scan-inthewild-io.result))
         fi
-        LIST_EPSS+=("$l")
-    done < "$PISC_OUT_DIR/epss.result"
+        # epss from empiricalsecurity.com
+        /bin/bash $DEBUG$SCRIPTPATH/scan-epss.sh --dont-output-result -i $IMAGE_LINK $OFFLINE_FEEDS_FLAG $IGNORE_ERRORS_FLAG
+        while IFS= read -r l; do
+            if [[ "$l" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+                l=$(printf "%.2f" "$l")
+            else
+                l="-"
+            fi
+            LIST_EPSS+=("$l")
+        done < "$PISC_OUT_DIR/epss.result"
+    fi
 fi
 
 # filtering by epss, exploit, exlusions
