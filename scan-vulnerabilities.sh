@@ -85,7 +85,7 @@ eval "rm -f $RES_FILE $SORT_FILE $TMP_FILE $ERROR_FILE $RES_FILE_TRIVY $RES_FILE
 touch $RES_FILE $RES_FILE_TRIVY $RES_FILE_GRYPE
 
 # exception handling
-error_exit() 
+error_exit()
 {
     if  [ "$IS_ERROR" = false ]; then
         IS_ERROR=true
@@ -122,12 +122,12 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) EPSS_MIN=$2 ; shift 2 ;;
-            esac ;; 
+            esac ;;
         --ignore-errors)
             case "$2" in
                 "") shift 1 ;;
                 *) PARAMS_TRIVY=$PARAMS_TRIVY' --ignore-errors' ; PARAMS_GRYPE=$PARAMS_GRYPE' --ignore-errors' ; IGNORE_ERRORS_FLAG='--ignore-errors' ; shift 1 ;;
-            esac ;; 
+            esac ;;
         -i|--image)
             case "$2" in
                 "") shift 2 ;;
@@ -142,37 +142,37 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) SCANNER=$2 ; shift 2 ;;
-            esac ;; 
+            esac ;;
         --severity-min)
             case "$2" in
                 "") shift 2 ;;
                 *) SEVERITY=$2 ; shift 2 ;;
-            esac ;; 
+            esac ;;
         --show-exploits)
             case "$2" in
                 "") shift 1 ;;
                 *) SHOW_EXPLOITS=true ; shift 1 ;;
-            esac ;;    
+            esac ;;
         --tar)
             case "$2" in
                 "") shift 2 ;;
                 *) PARAMS_TRIVY=$PARAMS_TRIVY' --tar '$2 ; PARAMS_GRYPE=$PARAMS_GRYPE' --tar '$2 ; LOCAL_FILE=$2 ; shift 2 ;;
-            esac ;;    
+            esac ;;
         --trivy-server)
             case "$2" in
                 "") shift 2 ;;
                 *) PARAMS_TRIVY=$PARAMS_TRIVY' --trivy-server '$2 ; shift 2 ;;
-            esac ;;  
+            esac ;;
         --trivy-token)
             case "$2" in
                 "") shift 2 ;;
                 *) debug_set false ; PARAMS_TRIVY=$PARAMS_TRIVY' --trivy-token '$2 ; debug_set true ; shift 2 ;;
-            esac ;;     
+            esac ;;
         --vulners-key)
             case "$2" in
                 "") shift 2 ;;
                 *) debug_set false ; VULNERS_API_KEY=$2 ; debug_set true ; shift 2 ;;
-            esac ;;              
+            esac ;;
         --) shift ; break ;;
         *) echo "Wrong usage! Try '$0 --help' for more information." ; exit 2 ;;
     esac
@@ -282,6 +282,13 @@ if [ "$IS_ERROR" = false ]; then
             fi
             LIST_EPSS+=("$l")
         done < "$PISC_OUT_DIR/epss.result"
+        # build CVE→priority map from combined result
+        declare -A CVE_PRIORITY_MAP
+        if [ -f "$PISC_OUT_DIR/scan-cve-db.result" ]; then
+            while IFS='|' read -r cve prio _rest; do
+                CVE_PRIORITY_MAP["$cve"]="$prio"
+            done < "$PISC_OUT_DIR/scan-cve-db.result"
+        fi
     else
         # ── online mode (original behaviour) ─────────────────────────────────
         # exploit analysis by vulners.com
@@ -348,22 +355,34 @@ do
             else
                 EXPL_COUNT=$EXPL_A_COUNT
             fi
-            RESULT_MESSAGE=$RESULT_MESSAGE$'\n '${LIST_CVE[$i]}' '${LIST_SEVERITY[$i]}' '${LIST_SCORE[$i]}' '${LIST_EPSS[$i]}' '$EXPL_COUNT' '${LIST_FIXED[$i]}' '${LIST_PKG[$i]}
-        fi  
-    fi	  
+            CVE_PRIO="${CVE_PRIORITY_MAP[${LIST_CVE[$i]}]:-}"
+            if [ -n "$CVE_PRIO" ]; then
+                RESULT_MESSAGE=$RESULT_MESSAGE$'\n '${LIST_CVE[$i]}'|'${LIST_SEVERITY[$i]}'|'${LIST_SCORE[$i]}'|'$CVE_PRIO'|'${LIST_EPSS[$i]}'|'$EXPL_COUNT'|'${LIST_FIXED[$i]}'|'${LIST_PKG[$i]}
+            else
+                RESULT_MESSAGE=$RESULT_MESSAGE$'\n '${LIST_CVE[$i]}'|'${LIST_SEVERITY[$i]}'|'${LIST_SCORE[$i]}'|'${LIST_EPSS[$i]}'|'$EXPL_COUNT'|'${LIST_FIXED[$i]}'|'${LIST_PKG[$i]}
+            fi
+        fi
+    fi
 done
 set -e
 
 # result: output to console and write to file
 if [ "$IS_EXPLOITABLE" = true ]; then
     # begin draw beauty table
-    RESULT_MESSAGE=" CVE SEVERITY SCORE EPSS EXPL FIX PACKAGE"$RESULT_MESSAGE
+    if [ ${#CVE_PRIORITY_MAP[@]} -gt 0 ]; then
+        RESULT_MESSAGE=" CVE|SEVERITY|SCORE|PRIORITY|EPSS|EXPL|FIX|PACKAGE"$RESULT_MESSAGE
+    else
+        RESULT_MESSAGE=" CVE|SEVERITY|SCORE|EPSS|EXPL|FIX|PACKAGE"$RESULT_MESSAGE
+    fi
     echo "$RESULT_MESSAGE" > $TMP_FILE
-    column -t -s' ' $TMP_FILE > $RES_FILE
+    # sort data lines by SCORE desc (numeric, handles "7.5/-" and "5.9/8.6" formats)
+    { head -1 $TMP_FILE; tail -n +2 $TMP_FILE | sort -t'|' -k3 -rn; } > ${TMP_FILE}.sorted
+    mv ${TMP_FILE}.sorted $TMP_FILE
+    column -t -s'|' $TMP_FILE > $RES_FILE
     sed -i 's/^/ /' $RES_FILE
     RESULT_MESSAGE=$(<$RES_FILE)
     # end draw beauty table
-    RESULT_MESSAGE="$EMOJI_VULN $C_RED$IMAGE_LINK$C_NIL >>> detected exploitable vulnerabilities"$'\n'$RESULT_MESSAGE 
+    RESULT_MESSAGE="$EMOJI_VULN $C_RED$IMAGE_LINK$C_NIL >>> detected exploitable vulnerabilities"$'\n'$RESULT_MESSAGE
     # insert info about exploits
     RESULT_MESSAGE_WITH_EXPL=""
     mapfile -t LINES <<< "$RESULT_MESSAGE"
@@ -380,25 +399,25 @@ if [ "$IS_EXPLOITABLE" = true ]; then
                     fi
                 fi
             fi
-        fi    
-    done  
+        fi
+    done
     # whitelist
     if [ "$IS_EXLUDED" == "true" ]; then
         RESULT_MESSAGE_WITH_EXPL=$RESULT_MESSAGE_WITH_EXPL'\n'"$EMOJI_EXCLUDE some CVEs or packages are whitelisted"
     fi
     echo "$RESULT_MESSAGE_WITH_EXPL" > $RES_FILE
-    if [ "$DONT_OUTPUT_RESULT" == "false" ]; then  
+    if [ "$DONT_OUTPUT_RESULT" == "false" ]; then
         echo -e "$RESULT_MESSAGE_WITH_EXPL"
-    fi 
+    fi
 else
-    if [ "$IS_EXLUDED" == "false" ]; then 
+    if [ "$IS_EXLUDED" == "false" ]; then
         R="OK"
     else
         R="OK (whitelisted)"
     fi
-    if [ "$DONT_OUTPUT_RESULT" == "false" ]; then 
+    if [ "$DONT_OUTPUT_RESULT" == "false" ]; then
         echo "$IMAGE_LINK >>> $R                 "
-    fi    
+    fi
     echo "$R" > $RES_FILE
 fi
 

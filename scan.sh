@@ -575,8 +575,8 @@ if [ "$CHECK_EXPLOITS" = true ] ; then
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF Grype"
     fi
     if [ -n "$CVE_DB_PATH" ]; then
-        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS + Exploits (cve-db) $FEEDS_DATE_EPSS"
-        SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: cve-db ($CVE_DB_PATH)"
+        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS + Exploits $FEEDS_DATE_EPSS"
+        SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: cve-db"
     else
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS $FEEDS_DATE_EPSS"
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Exploits $FEEDS_DATE_EXPLOITS"
