@@ -508,8 +508,11 @@ if [ "$CHECK_EXPLOITS" = true ]; then
     if [ -n "$CVE_DB_PATH" ] && [ -f "$CVE_DB_PATH" ]; then
         _CVE_DB_DATE=$(sqlite3 "file:${CVE_DB_PATH}?mode=ro&immutable=1" \
             "SELECT MAX(score_date) FROM epss_scores;" 2>/dev/null | cut -dT -f1)
+        _EXPL_DB_DATE=$(sqlite3 "file:${CVE_DB_PATH}?mode=ro&immutable=1" \
+            "SELECT MAX(date_added) FROM kev_entries;" 2>/dev/null | cut -dT -f1)
+
         FEEDS_DATE_EPSS="             ${_CVE_DB_DATE}${P}"
-        FEEDS_DATE_EXPLOITS="         ${_CVE_DB_DATE}${P}"
+        FEEDS_DATE_EXPLOITS="         ${_EXPL_DB_DATE}${P}"
     else
         if [ -f $PISC_FEEDS_DIR'/epss.csv' ]; then
             FEEDS_DATE_EPSS="             "$(sed -n 's/.*score_date:\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)T.*/\1/p' $PISC_FEEDS_DIR/epss.csv)"$P"
@@ -575,16 +578,16 @@ if [ "$CHECK_EXPLOITS" = true ] ; then
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF Grype"
     fi
     if [ -n "$CVE_DB_PATH" ]; then
-        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS + Exploits $FEEDS_DATE_EPSS"
-        SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: cve-db"
+        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS $FEEDS_DATE_EPSS"
+        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Exploits $FEEDS_DATE_EXPLOITS"
     else
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS $FEEDS_DATE_EPSS"
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Exploits $FEEDS_DATE_EXPLOITS"
-        if [ -z "$OFFLINE_FEEDS_FLAG" ]; then
-            SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: online"
-        else
-            SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: offline"
-        fi
+    fi
+    if [ -z "$OFFLINE_FEEDS_FLAG" ]; then
+        SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: online"
+    else
+        SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: offline"
     fi
     SCANNER_MSG=$SCANNER_MSG$'\n '"       exploit filter: EPSS > $EPSS_MIN"
     if [ "$EPSS_AND_FLAG" = "" ] ; then
