@@ -355,8 +355,9 @@ do
             else
                 EXPL_COUNT=$EXPL_A_COUNT
             fi
-            CVE_PRIO="${CVE_PRIORITY_MAP[${LIST_CVE[$i]}]:-}"
+            #CVE_PRIO="${CVE_PRIORITY_MAP[${LIST_CVE[$i]}]:-}"
             if [ -n "$CVE_PRIO" ]; then
+                CVE_PRIO="${CVE_PRIORITY_MAP[${LIST_CVE[$i]}]:-}"
                 RESULT_MESSAGE=$RESULT_MESSAGE$'\n '${LIST_CVE[$i]}'|'${LIST_SEVERITY[$i]}'|'${LIST_SCORE[$i]}'|'$CVE_PRIO'|'${LIST_EPSS[$i]}'|'$EXPL_COUNT'|'${LIST_FIXED[$i]}'|'${LIST_PKG[$i]}
             else
                 RESULT_MESSAGE=$RESULT_MESSAGE$'\n '${LIST_CVE[$i]}'|'${LIST_SEVERITY[$i]}'|'${LIST_SCORE[$i]}'|'${LIST_EPSS[$i]}'|'$EXPL_COUNT'|'${LIST_FIXED[$i]}'|'${LIST_PKG[$i]}
