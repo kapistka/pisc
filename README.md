@@ -7,6 +7,7 @@ Exits with code `1` if any of the following conditions are met:
 * **malware** 🍄 (exploits 🐙, hack-tools 👾, backdoors 🐴, crypto-miners 💰, etc 💩) by [virustotal](https://www.virustotal.com/)
 * exploitable critical **vulnerabilities** 🐞 by [trivy](https://github.com/aquasecurity/trivy), [grype](https://github.com/anchore/grype), [epss](https://epss.empiricalsecurity.com) and [inthewild.io](https://inthewild.io/)
 * image **misconfigurations** 🐳 like [CVE-2024-21626](https://www.docker.com/blog/docker-security-advisory-multiple-vulnerabilities-in-runc-buildkit-and-moby/)
+* **suspicious artifacts** ⚠ like embedded archives, packed binary hints, and suspicious launchers. This is a heuristic signal and may require manual review.
 * old **creation date** 📆
 * [non-version](https://docs.docker.com/engine/security/trust/#image-tags-and-dct) **tag** ⚓ (latest, etc)
   
@@ -56,6 +57,8 @@ Flags:
   --scanner [trivy|grype|all]     Choose which scanner to use: Trivy, Grype, or both (default: all)
   --severity-min <string>         Minimal severity of vulnerabilities [UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL] default [HIGH]
   --show-exploits                 Show exploit details
+  -s, --suspicious                Look for suspicious artifacts in image layers. This is a warning-only check and may require manual review.
+  --suspicious-fail               Treat suspicious artifacts as a failing signal. Implies '--suspicious'.
   --tar <string>                  Scan local TAR archive of image layers. Example: '--tar /path/to/private-image.tar'.
   --trivy-server <string>         Trivy server endpoint URL. Example: '--trivy-server http://trivy.something.io:8080'. 
   --trivy-token <string>          Authentication token for Trivy server. Example: '--trivy-token 0123456789abZ'.
@@ -66,6 +69,11 @@ Flags:
 Additional Notes:
 - To authenticate with a registry, refer to 'scan-download-unpack.sh#L14'.  
 - To configure exclusions for specific CVEs or other criteria, see 'check-exclusion.sh#L5'.
+- `embedded archive` means that an archive file was found inside the image, for example `.zip`, `.7z`, or `.rar`. This is only a pointer to an archive in the image. It is suspicious and should be reviewed manually.
+- `packed binary hint` means that a file name suggests packed content, for example `.upx`. This is a heuristic signal and should be reviewed manually.
+- `suspicious launcher` means that a script contains patterns like `curl | sh`, `wget | bash`, `base64 -d | sh`, or `openssl enc ... | sh`. This is suspicious and should be reviewed manually.
+- In `-s, --suspicious` mode these findings produce `OK, but`.
+- In `--suspicious-fail` mode the same findings produce exit code `1`.
 ```
 
 ## Usage in CI Pipelines

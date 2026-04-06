@@ -52,6 +52,8 @@ Flags:
   --scanner [trivy|grype|all]     Choose which scanner to use: Trivy, Grype, or both (default: all)
   --severity-min <string>         Minimal severity of vulnerabilities [UNKNOWN|LOW|MEDIUM|HIGH|CRITICAL] default [HIGH]
   --show-exploits                 Show exploit details
+  -s, --suspicious                Look for suspicious artifacts in image layers. This is a warning-only check and may require manual review.
+  --suspicious-fail               Treat suspicious artifacts as a failing signal. Implies '--suspicious'.
   --tar <string>                  Scan local TAR archive of image layers. Example: '--tar /path/to/private-image.tar'.
   --trivy-server <string>         Trivy server endpoint URL. Example: '--trivy-server http://trivy.something.io:8080'.
   --trivy-token <string>          Authentication token for Trivy server. Example: '--trivy-token 0123456789abZ'.
@@ -73,6 +75,8 @@ CHECK_DATE=false
 CHECK_EXPLOITS=false
 CHECK_LATEST=false
 CHECK_MISCONFIG=false
+CHECK_SUSPICIOUS=false
+CHECK_SUSPICIOUS_FAIL=false
 CHECK_YARA=false
 DEFAULT_OFFLINE_CACHE='/opt/db'
 EPSS_AND_FLAG=''
@@ -160,7 +164,7 @@ print_version() {
 
 # read the options
 debug_set false
-ARGS=$(getopt -o dehf:i:lmvy --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key:,yara,yara-file: -n $0 -- "$@")
+ARGS=$(getopt -o dehf:i:lmsvy --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,suspicious,suspicious-fail,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key:,yara,yara-file: -n $0 -- "$@")
 eval set -- "$ARGS"
 debug_set true
 
@@ -252,6 +256,16 @@ while true ; do
             case "$2" in
                 "") shift 1 ;;
                 *) SHOW_EXPLOITS_FLAG='--show-exploits' ; shift 1 ;;
+            esac ;;
+        -s|--suspicious)
+            case "$2" in
+                "") shift 1 ;;
+                *) CHECK_SUSPICIOUS=true ; shift 1 ;;
+            esac ;;
+        --suspicious-fail)
+            case "$2" in
+                "") shift 1 ;;
+                *) CHECK_SUSPICIOUS=true ; CHECK_SUSPICIOUS_FAIL=true ; shift 1 ;;
             esac ;;
         --tar)
             case "$2" in
@@ -448,7 +462,7 @@ if [ ! -z "$TRIVY_SERVER" ] && [ -z "$TRIVY_TOKEN" ]; then
     echo "Trivy token was specified but trivy URL not. Try '$0 --help' for more information."
     exit_unset 2
 fi
-if [ "$CHECK_EXPLOITS" = false ] && [ "$CHECK_DATE" = false ] &&  [ "$CHECK_LATEST" = false ] && [ "$CHECK_MISCONFIG" = false ] && [ -z "$VIRUSTOTAL_API_KEY" ] && [ "$CHECK_YARA" = false ]; then
+if [ "$CHECK_EXPLOITS" = false ] && [ "$CHECK_DATE" = false ] &&  [ "$CHECK_LATEST" = false ] && [ "$CHECK_MISCONFIG" = false ] && [ "$CHECK_SUSPICIOUS" = false ] && [ -z "$VIRUSTOTAL_API_KEY" ] && [ "$CHECK_YARA" = false ]; then
     echo "No checks selected. Try '$0 --help' for more information."
     exit_unset 2
 fi
@@ -573,6 +587,15 @@ if [ "$CHECK_MISCONFIG" = true ] ; then
 fi
 echo -e "   $EMOJI_OPT Build configuration scanning"
 EMOJI_OPT=$EMOJI_OFF
+if [ "$CHECK_SUSPICIOUS" = true ] ; then
+    EMOJI_OPT=$EMOJI_ON
+fi
+SUSPICIOUS_MODE='warning only'
+if [ "$CHECK_SUSPICIOUS_FAIL" = true ] ; then
+    SUSPICIOUS_MODE='fail on detect'
+fi
+echo -e "   $EMOJI_OPT Suspicious artifacts scanning ($SUSPICIOUS_MODE)"
+EMOJI_OPT=$EMOJI_OFF
 if [ "$CHECK_DATE" = true ] ; then
     EMOJI_OPT=$EMOJI_ON
 fi
@@ -597,6 +620,7 @@ scan_image() {
     IS_OLD=false
     IS_MALWARE_VT=false
     IS_MALWARE_YARA=false
+    IS_SUSPICIOUS=false
     EXCLUDED_STR=''
     LIST_ERRORS=()
 
@@ -634,6 +658,18 @@ scan_image() {
         elif [ "$MISCONFIG_RESULT_MESSAGE" == "OK (whitelisted)" ] ; then
             IS_EXCLUDED=true
             EXCLUDED_STR="${EXCLUDED_STR:+$EXCLUDED_STR$'\n'}   misconfig whitelisted"
+        fi
+    fi
+
+    # suspicious artifacts scanning
+    if [ "$CHECK_SUSPICIOUS" = true ]; then
+        /bin/bash $DEBUG$SCRIPTPATH/scan-suspicious-artifacts.sh --dont-output-result $FLAG_IMAGE $IMAGE_LINK
+        SUSPICIOUS_RESULT_MESSAGE=$(<$PISC_OUT_DIR/scan-suspicious-artifacts.result)
+        if [ "$SUSPICIOUS_RESULT_MESSAGE" != "OK" ] && [ "$SUSPICIOUS_RESULT_MESSAGE" != "OK (whitelisted)" ]; then
+            IS_SUSPICIOUS=true
+        elif [ "$SUSPICIOUS_RESULT_MESSAGE" == "OK (whitelisted)" ] ; then
+            IS_EXCLUDED=true
+            EXCLUDED_STR="${EXCLUDED_STR:+$EXCLUDED_STR$'\n'}   suspicious artifacts whitelisted"
         fi
     fi
 
@@ -731,6 +767,10 @@ scan_image() {
     if [ "$IS_MISCONFIG" = true ]; then
         echo -e "$MISCONFIG_RESULT_MESSAGE"
     fi
+    # echo suspicious artifacts result
+    if [ "$IS_SUSPICIOUS" = true ]; then
+        echo -e "$SUSPICIOUS_RESULT_MESSAGE"
+    fi
     # echo virustotal result
     if [ "$IS_MALWARE_YARA" = true ]; then
         echo -e "$YARA_RESULT_MESSAGE"
@@ -769,7 +809,7 @@ scan_image() {
     fi
 
     # decision logic
-    if [ "$IS_OLD" = true ] ||  [ "$IS_EXPLOITABLE" = true ] ||  [ "$IS_MALWARE_YARA" = true ] ||  [ "$IS_MALWARE_VT" = true ] ||  [ "$IS_LATEST" = true ] || [ "$IS_MISCONFIG" = true ]; then
+    if [ "$IS_OLD" = true ] ||  [ "$IS_EXPLOITABLE" = true ] ||  [ "$IS_MALWARE_YARA" = true ] ||  [ "$IS_MALWARE_VT" = true ] ||  [ "$IS_LATEST" = true ] || [ "$IS_MISCONFIG" = true ] || ( [ "$CHECK_SUSPICIOUS_FAIL" = true ] && [ "$IS_SUSPICIOUS" = true ] ); then
         SCAN_RETURN_CODE=1
         # show ignored errors
         if (( ${#LIST_ERRORS[@]} > 0 )); then
@@ -781,7 +821,7 @@ scan_image() {
             echo -e "$EXCLUDED_STR"
         fi
     else
-        if (( ${#LIST_ERRORS[@]} > 0 )) || [ "$IS_EXCLUDED" = true ]; then
+        if (( ${#LIST_ERRORS[@]} > 0 )) || [ "$IS_EXCLUDED" = true ] || [ "$IS_SUSPICIOUS" = true ]; then
             echo -e "$EMOJI_NOT_OK $C_YLW$IMAGE_LINK$C_NIL >>> OK, but                                         "
             if [ ! -z "$EXCLUDED_STR" ]; then
                 echo -e "$EXCLUDED_STR"
