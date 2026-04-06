@@ -7,6 +7,7 @@
 # The file format supports YAML syntax. Each exclusion rule applies to the specified image only.
 # Ensure that only one exclusion criterion (cve, package, malware, misconfig, days, tag) is used per rule to maintain clarity.
 # Optional field expiresOn disables a rule after the specified date in YYYY-MM-DD format.
+# Optional field reason stores a free-form text comment and does not affect matching.
 
 # whitelist.yaml file format:
 
@@ -15,6 +16,7 @@
 #   cve:
 #     - "CVE-2025-1234"
 #     - "CVE-2025-5678"
+#   reason: "temporary exception for base image update"
 #   expiresOn: "2026-03-30"
 #
 # - misconfig:
@@ -65,6 +67,7 @@
 #     - "linux-libc-dev"
 #   image:
 #     - "alpine:latest"
+#   reason: "temporary exception for base image update"
 #   expiresOn: "2026-03-30"
 
 # Exit Codes:
@@ -185,7 +188,7 @@ if [ ! -s "$CSV_FILE" ] || [ "$PISC_EXCLUSIONS_FILE" -nt "$CSV_FILE" ]; then
     VALUE_LIST=()
     EXPIRES_ON_LIST=()
     # convert yaml to csv
-    yq -o=json '.[]' "$PISC_EXCLUSIONS_FILE" | jq -r '(.expiresOn // "") as $expiresOn | .image[] as $image | to_entries[] | select(.key != "image" and .key != "expiresOn") | [($image), .key, .value[], $expiresOn] | @tsv' > "$CSV_FILE" \
+    yq -o=json '.[]' "$PISC_EXCLUSIONS_FILE" | jq -r '(.expiresOn // "") as $expiresOn | .image[] as $image | to_entries[] | select(.key != "image" and .key != "expiresOn" and .key != "reason") | [($image), .key, .value[], $expiresOn] | @tsv' > "$CSV_FILE" \
       || error_exit "check exclusions: yaml error"
     # read csv
     while IFS=$'\t' read -r image key value expires_on; do
