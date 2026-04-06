@@ -147,20 +147,15 @@ scan_layer_launchers()
     local evidence=''
 
     : > "$TMP_MATCH_FILE"
-    find "$LAYER_TMP_DIR" -type f -exec awk '
-        /curl[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
-            print "launcher-curl-pipe-shell\t" FILENAME ":" FNR ":" $0
-        }
-        /wget[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
-            print "launcher-wget-pipe-shell\t" FILENAME ":" FNR ":" $0
-        }
-        /base64[[:space:]]+-d[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
-            print "launcher-base64-pipe-shell\t" FILENAME ":" FNR ":" $0
-        }
-        /openssl[[:space:]]+enc[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
-            print "launcher-openssl-enc-pipe-shell\t" FILENAME ":" FNR ":" $0
-        }
-    ' {} + > "$TMP_MATCH_FILE" 2>/dev/null || true
+    grep -r -I -E -n \
+        'curl[^[:cntrl:]]+\|[[:space:]]*(sh|bash)|wget[^[:cntrl:]]+\|[[:space:]]*(sh|bash)|base64[[:space:]]+-d[^[:cntrl:]]+\|[[:space:]]*(sh|bash)|openssl[[:space:]]+enc[^[:cntrl:]]+\|[[:space:]]*(sh|bash)' \
+        "$LAYER_TMP_DIR" 2>/dev/null \
+    | awk '
+        /curl[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/                    { print "launcher-curl-pipe-shell\t" $0 }
+        /wget[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/                    { print "launcher-wget-pipe-shell\t" $0 }
+        /base64[[:space:]]+-d[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/    { print "launcher-base64-pipe-shell\t" $0 }
+        /openssl[[:space:]]+enc[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/  { print "launcher-openssl-enc-pipe-shell\t" $0 }
+    ' >> "$TMP_MATCH_FILE" || true
 
     while IFS=$'\t' read -r rule_id evidence; do
         [ -n "$rule_id" ] || continue
