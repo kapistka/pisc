@@ -140,33 +140,32 @@ scan_layer_names()
     done < <("$TAR_BIN" -tf "$layer_file" 2>/dev/null)
 }
 
-scan_launcher_pattern()
-{
-    local layer_id="$1"
-    local rule_id="$2"
-    local regex="$3"
-    local kind="$4"
-    local match_line=''
-    local file_path=''
-
-    : > "$TMP_MATCH_FILE"
-    while IFS= read -r -d '' file_path; do
-        grep -nE "$regex" "$file_path" >> "$TMP_MATCH_FILE" 2>/dev/null || true
-    done < <(find "$LAYER_TMP_DIR" -type f -print0)
-    while IFS= read -r match_line; do
-        [ -n "$match_line" ] || continue
-        append_rule_finding "$layer_id" "$rule_id" "$kind" "${match_line#"$LAYER_TMP_DIR"/}"
-    done < "$TMP_MATCH_FILE"
-}
-
 scan_layer_launchers()
 {
     local layer_id="$1"
+    local rule_id=''
+    local evidence=''
 
-    scan_launcher_pattern "$layer_id" "launcher-curl-pipe-shell" 'curl[^[:cntrl:]]+\|[[:space:]]*(sh|bash)' "suspicious launcher"
-    scan_launcher_pattern "$layer_id" "launcher-wget-pipe-shell" 'wget[^[:cntrl:]]+\|[[:space:]]*(sh|bash)' "suspicious launcher"
-    scan_launcher_pattern "$layer_id" "launcher-base64-pipe-shell" 'base64[[:space:]]+-d[^[:cntrl:]]+\|[[:space:]]*(sh|bash)' "suspicious launcher"
-    scan_launcher_pattern "$layer_id" "launcher-openssl-enc-pipe-shell" 'openssl[[:space:]]+enc[^[:cntrl:]]+\|[[:space:]]*(sh|bash)' "suspicious launcher"
+    : > "$TMP_MATCH_FILE"
+    find "$LAYER_TMP_DIR" -type f -exec awk '
+        /curl[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
+            print "launcher-curl-pipe-shell\t" FILENAME ":" FNR ":" $0
+        }
+        /wget[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
+            print "launcher-wget-pipe-shell\t" FILENAME ":" FNR ":" $0
+        }
+        /base64[[:space:]]+-d[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
+            print "launcher-base64-pipe-shell\t" FILENAME ":" FNR ":" $0
+        }
+        /openssl[[:space:]]+enc[^[:cntrl:]]+\|[[:space:]]*(sh|bash)/ {
+            print "launcher-openssl-enc-pipe-shell\t" FILENAME ":" FNR ":" $0
+        }
+    ' {} + > "$TMP_MATCH_FILE" 2>/dev/null || true
+
+    while IFS=$'\t' read -r rule_id evidence; do
+        [ -n "$rule_id" ] || continue
+        append_rule_finding "$layer_id" "$rule_id" "suspicious launcher" "${evidence#"$LAYER_TMP_DIR"/}"
+    done < "$TMP_MATCH_FILE"
 }
 
 scan_unpack_warnings()
