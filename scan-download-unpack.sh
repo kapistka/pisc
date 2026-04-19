@@ -66,29 +66,24 @@ if [ -f "$PISC_AUTH_FILE" ]; then
     SKOPEO_AUTH_FLAG="--authfile=$PISC_AUTH_FILE"
 fi
 
+# read the options
+ARGS=$(getopt -o i: --long image:,tar: -n $0 -- "$@")
+eval set -- "$ARGS"
+
 # extract options and their arguments into variables.
-while [ $# -gt 0 ]; do
+while true ; do
     case "$1" in
         -i|--image)
-            if [ -z "${2:-}" ]; then
-                echo "Wrong usage! Try '$0 --help' for more information."
-                exit 2
-            fi
-            IMAGE_LINK=$2
-            shift 2
-            ;;
+            case "$2" in
+                "") shift 2 ;;
+                *) IMAGE_LINK=$2 ; shift 2 ;;
+            esac ;;
         --tar)
-            if [ -z "${2:-}" ]; then
-                echo "Wrong usage! Try '$0 --help' for more information."
-                exit 2
-            fi
-            LOCAL_FILE=$2
-            shift 2
-            ;;
-        --)
-            shift
-            break
-            ;;
+            case "$2" in
+                "") shift 2 ;;
+                *) LOCAL_FILE=$2 ; shift 2 ;;
+            esac ;;
+        --) shift ; break ;;
         *) echo "Wrong usage! Try '$0 --help' for more information." ; exit 2 ;;
     esac
 done

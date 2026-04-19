@@ -103,31 +103,25 @@ matches_pattern()
     esac
 }
 
+# read the options
+ARGS=$(getopt -o i: --long cve:,days:,image:,malware:,misconfig:,package:,tag:,yara: -n $0 -- "$@")
+eval set -- "$ARGS"
+
 # extract options and their arguments into variables
-while [ $# -gt 0 ]; do
+while true ; do
     case "$1" in
         --cve|--days|--malware|--misconfig|--package|--tag|--yara)
-            if [ -z "${2:-}" ]; then
-                error_exit "check exclusions: missing value for $1"
-            fi
-            SEARCH_KEY=${1:2}
-            SEARCH_VALUE=$2
-            shift 2
-            ;;
+            case "$2" in
+                "") shift 2 ;;
+                *) SEARCH_KEY=${1:2} ; SEARCH_VALUE=$2 ; shift 2 ;;
+            esac ;;
         -i|--image)
-            if [ -z "${2:-}" ]; then
-                error_exit "check exclusions: missing value for $1"
-            fi
-            IMAGE_LINK=$2
-            shift 2
-            ;;
-        --)
-            shift
-            break
-            ;;
-        *)
-            error_exit "check exclusions: wrong usage"
-            ;;
+            case "$2" in
+                "") shift 2 ;;
+                *) IMAGE_LINK=$2 ; shift 2 ;;
+            esac ;;
+        --) shift ; break ;;
+        *) echo "Wrong usage! Try '$0 --help' for more information." ; exit 2 ;;
     esac
 done
 
