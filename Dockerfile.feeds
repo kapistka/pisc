@@ -1,4 +1,4 @@
-FROM kapistka/pisc:v0.19.0-rc2
+FROM kapistka/pisc:v0.19.0
 
 ENV GRYPE_DB_CACHE_DIR=/opt/db/grype \
   GRYPE_DB_AUTO_UPDATE=false \

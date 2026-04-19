@@ -1,9 +1,9 @@
-FROM aquasec/trivy:0.69.1 AS trivy
+FROM aquasec/trivy:0.69.3 AS trivy
 
 FROM alpine:3
 
 RUN apk update && apk upgrade && apk --no-cache add bash coreutils curl file gnupg jq skopeo tar sqlite unzip util-linux yara yq \
-  && GRYPE_VERSION="0.107.1" \
+  && GRYPE_VERSION="0.111.0" \
   && curl -sSL "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" -o grype.tar.gz \
   && tar -xzf grype.tar.gz -C /usr/local/bin grype \
   && rm grype.tar.gz

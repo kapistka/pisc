@@ -4,7 +4,7 @@
 
 set -Eeo pipefail
 
-VERSION='v0.19.0-rc2'
+VERSION='v0.19.0'
 
 usage() {
     cat <<EOF
