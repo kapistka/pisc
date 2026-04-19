@@ -174,15 +174,19 @@ scan_unpack_warnings()
     fi
 }
 
-# extract options and their arguments into variables
-while [ $# -gt 0 ]; do
+# read the options
+ARGS=$(getopt -o i: --long dont-output-result,image:,tar: -n $0 -- "$@")
+eval set -- "$ARGS"
+
+# extract options and their arguments into variables.
+while true ; do
     case "$1" in
         --dont-output-result)
             DONT_OUTPUT_RESULT=true
             shift 1
             ;;
         -i|--image)
-            if [ -z "${2:-}" ]; then
+            if [ -z "$2" ]; then
                 echo "Wrong usage! Try '$0 --help' for more information."
                 exit 2
             fi
@@ -190,17 +194,14 @@ while [ $# -gt 0 ]; do
             shift 2
             ;;
         --tar)
-            if [ -z "${2:-}" ]; then
+            if [ -z "$2" ]; then
                 echo "Wrong usage! Try '$0 --help' for more information."
                 exit 2
             fi
             LOCAL_FILE=$2
             shift 2
             ;;
-        --)
-            shift
-            break
-            ;;
+        --) shift ; break ;;
         *) echo "Wrong usage! Try '$0 --help' for more information." ; exit 2 ;;
     esac
 done
