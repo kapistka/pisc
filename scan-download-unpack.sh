@@ -67,7 +67,7 @@ if [ -f "$PISC_AUTH_FILE" ]; then
 fi
 
 # read the options
-ARGS=$(getopt -o i: --long image:,authfile:,tar: -n $0 -- "$@")
+ARGS=$(getopt -o i: --long image:,tar: -n $0 -- "$@")
 eval set -- "$ARGS"
 
 # extract options and their arguments into variables.
