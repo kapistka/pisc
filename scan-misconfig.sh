@@ -119,9 +119,10 @@ echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> scan misconfiguration\033[0K\r"
 
 for f in "$PISC_OUT_DIR/image"/*.json
 do
+    [ -f "$f" ] || continue
     for (( i=0; i<${#MISCONFIG_REGEX[@]}; i++ ));
     do
-        if grep -Eqi "${MISCONFIG_REGEX[$i]}" $f; then
+        if grep -Eqi "${MISCONFIG_REGEX[$i]}" "$f"; then
             # check exclusions
             set +e
             /bin/bash $DEBUG$SCRIPTPATH/check-exclusions.sh -i $IMAGE_LINK --misconfig 12345abcd

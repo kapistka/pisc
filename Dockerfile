@@ -27,6 +27,7 @@ COPY check-exclusions.sh \
   scan-inthewild-io.sh \
   scan-misconfig.sh \
   scan-new-tags.sh \
+  scan-suspicious-artifacts.sh \
   scan-trivy.sh \
   scan-virustotal.sh \
   scan-vulners-com.sh \
