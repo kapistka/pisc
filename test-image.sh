@@ -22,8 +22,8 @@ IMAGE="${1:-}"
 
 if [[ -z "$IMAGE" ]]; then
     echo "Usage: $0 <image>"
-    echo "Example: $0 kapistka/pisc:v0.19.0-rc2"
-    echo "         $0 kapistka/pisc:v0.19.0-rc2-feeds"
+    echo "Example: $0 kapistka/pisc:v0.19.0"
+    echo "         $0 kapistka/pisc:v0.19.0-feeds"
     exit 2
 elif [[ "$IMAGE" != *"feeds"* ]]; then
     OFFLINE_FLAG=''
@@ -41,7 +41,7 @@ if [[ -z "$VT_API_KEY" ]]; then
 fi
 
 cat > $INPUT_FILE <<EOF
-r0binak/mtkpi:v1.3
+r0binak/mtkpi:v1.7.6
 EOF
 
 echo "run $IMAGE"

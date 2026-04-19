@@ -1,3 +1,11 @@
+v0.19.0
+Changed
+    README.md
+    Trivy 0.69.3
+    Grype 0.111.0
+Fixed
+    --skip-java-db-update
+
 v0.19.0-rc2
 Added
     Yara scaning
