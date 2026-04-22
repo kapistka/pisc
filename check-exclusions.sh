@@ -6,6 +6,8 @@
 # The script checks exclusions listed in the $PISC_EXCLUSIONS_FILE file (whitelist.yaml by default).
 # The file format supports YAML syntax. Each exclusion rule applies to the specified image only.
 # Ensure that only one exclusion criterion (cve, package, malware, misconfig, days, tag) is used per rule to maintain clarity.
+# Optional field expiresOn disables a rule after the specified date in YYYY-MM-DD format.
+# Optional field reason stores a free-form text comment and does not affect matching.
 
 # whitelist.yaml file format:
 
@@ -14,6 +16,8 @@
 #   cve:
 #     - "CVE-2025-1234"
 #     - "CVE-2025-5678"
+#   reason: "temporary exception for base image update"
+#   expiresOn: "2026-03-30"
 #
 # - misconfig:
 #     - "*"
@@ -58,6 +62,13 @@
 # ./check-exclusions.sh -i alpine:latest --days 500
 # ./check-exclusions.sh -i alpine:latest --tag latest
 # ./check-exclusions.sh -i alpine:latest --yara "Semi-Auto-generated  - file STNC.php.php.txt"
+# whitelist.yaml example with expiresOn:
+# - package:
+#     - "linux-libc-dev"
+#   image:
+#     - "alpine:latest"
+#   reason: "temporary exception for base image update"
+#   expiresOn: "2026-03-30"
 
 # Exit Codes:
 #     0 - The image does not meet the exclusion criteria
@@ -73,9 +84,15 @@ SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 : "${PISC_EXCLUSIONS_FILE:=$SCRIPTPATH/whitelist.yaml}"
 ERROR_FILE=$PISC_OUT_DIR'/check-exclusions.error'
 CSV_FILE=$PISC_OUT_DIR'/whitelist.csv'
+TODAY=$(date '+%Y-%m-%d')
+
+mkdir -p "$PISC_OUT_DIR" 2>/dev/null || {
+    printf '   %s\n' "check exclusions: cannot create output dir" >&2
+    exit 2
+}
 
 # if whitelist not found then exit 0
-if [ ! -f $PISC_EXCLUSIONS_FILE ]; then
+if [ ! -f "$PISC_EXCLUSIONS_FILE" ]; then
     exit 0
 fi
 
@@ -86,29 +103,65 @@ SEARCH_VALUE=''
 
 error_exit()
 {
-    printf "   $1" > $ERROR_FILE
+    printf '   %s' "$1" > "$ERROR_FILE"
     exit 2
 }
 
-# read the options
-ARGS=$(getopt -o i: --long cve:,days:,image:,malware:,misconfig:,package:,tag:,yara: -n $0 -- "$@")
-eval set -- "$ARGS"
+normalize_iso_date()
+{
+    local date_value="$1"
+    local normalized_date=''
+
+    if normalized_date=$(date -d "$date_value" '+%Y-%m-%d' 2>/dev/null); then
+        printf '%s\n' "$normalized_date"
+        return 0
+    fi
+
+    if normalized_date=$(date -j -f '%Y-%m-%d' "$date_value" '+%Y-%m-%d' 2>/dev/null); then
+        printf '%s\n' "$normalized_date"
+        return 0
+    fi
+
+    return 1
+}
+
+is_rule_active()
+{
+    local expires_on="$1"
+
+    if [ -z "$expires_on" ]; then
+        return 0
+    fi
+
+    [[ "$expires_on" < "$TODAY" ]] && return 1
+    return 0
+}
 
 # extract options and their arguments into variables
-while true ; do
+while [ $# -gt 0 ]; do
     case "$1" in
         --cve|--days|--malware|--misconfig|--package|--tag|--yara)
-            case "$2" in
-                "") shift 2 ;;
-                *) SEARCH_KEY=${1:2} ; SEARCH_VALUE=$2 ; shift 2 ;;
-            esac ;;
+            if [ -z "${2:-}" ]; then
+                error_exit "check exclusions: missing value for $1"
+            fi
+            SEARCH_KEY=${1:2}
+            SEARCH_VALUE=$2
+            shift 2
+            ;;
         -i|--image)
-            case "$2" in
-                "") shift 2 ;;
-                *) IMAGE_LINK=$2 ; shift 2 ;;
-            esac ;;
-        --) shift ; break ;;
-        *) echo "Wrong usage! Try '$0 --help' for more information." ; exit 2 ;;
+            if [ -z "${2:-}" ]; then
+                error_exit "check exclusions: missing value for $1"
+            fi
+            IMAGE_LINK=$2
+            shift 2
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            error_exit "check exclusions: wrong usage"
+            ;;
     esac
 done
 
@@ -125,17 +178,20 @@ fi
 # arrays init
 declare -a VALUE_LIST
 declare -a IMAGE_LIST
+declare -a KEY_LIST
+declare -a EXPIRES_ON_LIST
 
 # csv cached and removed from parent script
-if [ ! -s $CSV_FILE ]; then
+if [ ! -s "$CSV_FILE" ] || [ "$PISC_EXCLUSIONS_FILE" -nt "$CSV_FILE" ]; then
     IMAGE_LIST=()
     KEY_LIST=()
     VALUE_LIST=()
+    EXPIRES_ON_LIST=()
     # convert yaml to csv
-    yq -o=json '.[]' $PISC_EXCLUSIONS_FILE | jq -r '.image[] as $image | to_entries[] | select(.key != "image") | [($image), .key, .value[]] | @csv' | tr -d '"' > $CSV_FILE \
+    yq -o=json '.[]' "$PISC_EXCLUSIONS_FILE" | jq -r '(.expiresOn // "") as $expiresOn | .image[] as $image | to_entries[] | select(.key != "image" and .key != "expiresOn" and .key != "reason") | [($image), .key, .value[], $expiresOn] | @tsv' > "$CSV_FILE" \
       || error_exit "check exclusions: yaml error"
     # read csv
-    while IFS=, read -r image key value; do
+    while IFS=$'\t' read -r image key value expires_on; do
         # check format
         if [ -z "$image" ]; then
             error_exit "check exclusions: wrong format - image should be set"
@@ -149,41 +205,47 @@ if [ ! -s $CSV_FILE ]; then
         if [[ "$key" == "misconfig" ]] && [[ "$value" != "*" ]]; then
             error_exit "check exclusions: wrong format - misconfig should be * only"
         fi
+        if [ -n "$expires_on" ]; then
+            expires_on=$(normalize_iso_date "$expires_on") \
+              || error_exit "check exclusions: wrong format - expiresOn should be YYYY-MM-DD"
+        fi
 
         IMAGE_LIST+=("$image")
         KEY_LIST+=("$key")
         VALUE_LIST+=("$value")
-    done < $CSV_FILE
-    > $CSV_FILE
-    # write csv extended
+        EXPIRES_ON_LIST+=("$expires_on")
+    done < "$CSV_FILE"
+    : > "$CSV_FILE"
+    # write validated cache
     for (( i=0; i<${#IMAGE_LIST[@]}; i++ ));
     do
-        IFS=',' read -r -a A <<< "${VALUE_LIST[$i]}"
-        for (( j=0; j<${#A[@]}; j++ ));
-        do
-            echo "${IMAGE_LIST[$i]},${KEY_LIST[$i]},${A[$j]}" >> $CSV_FILE
-        done
+        printf '%s\t%s\t%s\t%s\n' "${IMAGE_LIST[$i]}" "${KEY_LIST[$i]}" "${VALUE_LIST[$i]}" "${EXPIRES_ON_LIST[$i]}" >> "$CSV_FILE"
     done
 fi
 
 # reading from cached csv
 IMAGE_LIST=()
 VALUE_LIST=()
-while IFS=',' read -r image key value; do
+EXPIRES_ON_LIST=()
+while IFS=$'\t' read -r image key value expires_on; do
     # read only SEARCH_KEY needed
-    if [[ $SEARCH_KEY == $key ]]; then
+    if [[ $SEARCH_KEY == "$key" ]]; then
         IMAGE_LIST+=("$image")
         VALUE_LIST+=("$value")
+        EXPIRES_ON_LIST+=("$expires_on")
     fi
-done < $CSV_FILE
+done < "$CSV_FILE"
 
 # searching
 for (( i=0; i<${#IMAGE_LIST[@]}; i++ ));
 do
-    if [[ $IMAGE_LINK == ${IMAGE_LIST[$i]} ]]; then
+    if [[ $IMAGE_LINK == "${IMAGE_LIST[$i]}" ]]; then
+        if ! is_rule_active "${EXPIRES_ON_LIST[$i]}"; then
+            continue
+        fi
         if [[ $SEARCH_KEY == "cve" || $SEARCH_KEY == "package" || $SEARCH_KEY == "malware" || $SEARCH_KEY == "misconfig" ]]; then
             # use * pattern
-            if [[ $SEARCH_VALUE == ${VALUE_LIST[$i]} ]]; then
+            if [[ $SEARCH_VALUE == "${VALUE_LIST[$i]}" ]]; then
                 exit 1
             fi
         elif [[ $SEARCH_KEY == "yara" ]]; then
