@@ -56,6 +56,8 @@ Flags:
   --trivy-server <string>         Trivy server endpoint URL. Example: '--trivy-server http://trivy.something.io:8080'.
   --trivy-token <string>          Authentication token for Trivy server. Example: '--trivy-token 0123456789abZ'.
   -v, --version                   Display version.
+  --vt-engine-score-threshold <int> Score threshold for VirusTotal malicious engine weights (default: 1).
+  --vt-engine-weights <string>    VirusTotal engine weights. Example: '--vt-engine-weights Elastic=100,Avast=30'.
   --virustotal-key <string>       VirusTotal API key for malware scanning. Example: '--virustotal-key 0123456789abcdef'.
   --vulners-key <string>          Vulners.com API key (alternative to inthewild.io). Example: '--vulners-key 0123456789ABCDXYZ'.
   -y, --yara                      Scanning with YARA rules for malware
@@ -90,6 +92,8 @@ SHOW_EXPLOITS_FLAG=''
 TRIVY_SERVER=''
 TRIVY_TOKEN=''
 VIRUSTOTAL_API_KEY=''
+VT_ENGINE_SCORE_THRESHOLD=''
+VT_ENGINE_WEIGHTS=''
 VULNERS_API_KEY=''
 FILE_SCAN=''
 IS_LIST_IMAGES=false
@@ -151,6 +155,8 @@ exit_unset()
     unset PISC_EXCLUSIONS_FILE
     unset PISC_FEEDS_DIR
     unset PISC_OUT_DIR
+    unset VT_ENGINE_SCORE_THRESHOLD
+    unset VT_ENGINE_WEIGHTS
     exit $1
 }
 
@@ -160,7 +166,7 @@ print_version() {
 
 # read the options
 debug_set false
-ARGS=$(getopt -o dehf:i:lmvy --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key:,yara,yara-file: -n $0 -- "$@")
+ARGS=$(getopt -o dehf:i:lmvy --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,vt-engine-score-threshold:,vt-engine-weights:,virustotal-key:,vulners-key:,yara,yara-file: -n $0 -- "$@")
 eval set -- "$ARGS"
 debug_set true
 
@@ -269,6 +275,16 @@ while true ; do
                 *)  debug_set false ; TRIVY_TOKEN=$2 ; debug_set true ; CHECK_EXPLOITS=true ; shift 2 ;;
             esac ;;
         -v|--version) print_version ; exit_unset 0;;
+        --vt-engine-score-threshold)
+            case "$2" in
+                "") shift 2 ;;
+                *) VT_ENGINE_SCORE_THRESHOLD=$2 ; shift 2 ;;
+            esac ;;
+        --vt-engine-weights)
+            case "$2" in
+                "") shift 2 ;;
+                *) VT_ENGINE_WEIGHTS=$2 ; shift 2 ;;
+            esac ;;
         --virustotal-key)
             case "$2" in
                 "") shift 2 ;;
@@ -434,6 +450,32 @@ if [[ "$SCANNER" != "trivy" && "$SCANNER" != "grype" && "$SCANNER" != "all" ]]; 
     echo "Invalid --scanner value: $SCANNER. Must be one of: trivy, grype, all. Try '$0 --help' for more information."
     exit_unset 2
 fi
+# VirusTotal engine policy
+if [ ! -z "$VT_ENGINE_SCORE_THRESHOLD" ]; then
+    if ! [[ "$VT_ENGINE_SCORE_THRESHOLD" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Invalid --vt-engine-score-threshold value: $VT_ENGINE_SCORE_THRESHOLD. Must be positive integer. Try '$0 --help' for more information."
+        exit_unset 2
+    fi
+    export VT_ENGINE_SCORE_THRESHOLD
+fi
+if [ ! -z "$VT_ENGINE_WEIGHTS" ]; then
+    IFS=',' read -r -a VT_ENGINE_WEIGHT_ITEMS <<< "$VT_ENGINE_WEIGHTS"
+    for ITEM in "${VT_ENGINE_WEIGHT_ITEMS[@]}"; do
+        ITEM="${ITEM#"${ITEM%%[![:space:]]*}"}"
+        ITEM="${ITEM%"${ITEM##*[![:space:]]}"}"
+        ENGINE="${ITEM%%=*}"
+        WEIGHT="${ITEM#*=}"
+        ENGINE="${ENGINE#"${ENGINE%%[![:space:]]*}"}"
+        ENGINE="${ENGINE%"${ENGINE##*[![:space:]]}"}"
+        WEIGHT="${WEIGHT#"${WEIGHT%%[![:space:]]*}"}"
+        WEIGHT="${WEIGHT%"${WEIGHT##*[![:space:]]}"}"
+        if [[ "$ITEM" != *"="* ]] || [ -z "$ENGINE" ] || ! [[ "$WEIGHT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Invalid --vt-engine-weights value: $VT_ENGINE_WEIGHTS. Use Engine=positive_integer[,Engine=positive_integer]. Try '$0 --help' for more information."
+            exit_unset 2
+        fi
+    done
+    export VT_ENGINE_WEIGHTS
+fi
 if ! [[ "$EPSS_MIN" =~ ^0\.[0-9]+$ ]]; then
     echo "Invalid --epss-min value: $EPSS_MIN. Must be a float between 0 and 1 (exclusive). Try '$0 --help' for more information."
     exit_unset 2
@@ -526,6 +568,12 @@ fi
 debug_set false
 if [ ! -z "$VIRUSTOTAL_API_KEY" ]; then
     SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON virustotal.com"
+    if [ ! -z "$VT_ENGINE_SCORE_THRESHOLD" ]; then
+        SCANNER_MSG=$SCANNER_MSG$'\n '"       vt engine score threshold: $VT_ENGINE_SCORE_THRESHOLD"
+    fi
+    if [ ! -z "$VT_ENGINE_WEIGHTS" ]; then
+        SCANNER_MSG=$SCANNER_MSG$'\n '"       vt engine weights: custom"
+    fi
     EMOJI_OPT=$EMOJI_ON
 else 
     SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF virustotal.com"

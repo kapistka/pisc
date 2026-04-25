@@ -11,6 +11,10 @@
 #     -i, --image string                only this image will be checked. Example: -i r0binak/mtkpi:v1.3
 #     --tar string                      check local image-tar. Example: --tar /path/to/private-image.tar
 #     --virustotal-key string           specify virustotal API-key, example: ---virustotal-key 0123456789abcdef
+# Environment variables:
+#     VT_ENGINE_WEIGHTS                 comma-separated engine weights, example: EngineA=100,EngineB=30
+#     VT_ENGINE_SCORE_THRESHOLD         score threshold for malicious verdicts, default: 1
+#     PISC_VT_ARTIFACTS_DIR             save raw VirusTotal JSON responses, disabled by default
 # Example
 #     ./scan-virustotal.sh --virustotal-key 0123456789abcdef -i r0binak/mtkpi:v1.3
 
@@ -93,6 +97,9 @@ EMOJI_CODES=(
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
 # get exported var with default value if it is empty
 : "${PISC_OUT_DIR:=/tmp}"
+: "${PISC_VT_ARTIFACTS_DIR:=}"
+: "${VT_ENGINE_WEIGHTS:=}"
+: "${VT_ENGINE_SCORE_THRESHOLD:=1}"
 # check debug mode to debug child scripts and external tools
 DEBUG=''
 DEBUG_CURL='-sf '
@@ -117,6 +124,145 @@ debug_null() {
     if [[ "$-" != *x* ]]; then 
         eval &>/dev/null
     fi    
+}
+
+vt_artifacts_init() {
+    if [ ! -z "$PISC_VT_ARTIFACTS_DIR" ]; then
+        mkdir -p "$PISC_VT_ARTIFACTS_DIR"
+    fi
+}
+
+vt_artifact_sanitize() {
+    echo "$1" | tr '/ :' '___'
+}
+
+vt_artifact_save() {
+    if [ ! -z "$PISC_VT_ARTIFACTS_DIR" ] && [ -f "$1" ]; then
+        cp "$1" "$PISC_VT_ARTIFACTS_DIR/$(vt_artifact_sanitize "$2").json"
+    fi
+}
+
+vt_file_verdicts_read() {
+    jq -r '.data[]?.attributes?.last_analysis_results?[]? | [.engine_name, .category, (.result // ""), "hash_search"] | @tsv' "$1"
+}
+
+vt_analysis_verdicts_read() {
+    jq -r '.data?.attributes?.results?[]? | [.engine_name, .category, (.result // ""), "analysis_search"] | @tsv' "$1"
+}
+
+vt_relationship_verdicts_read() {
+    jq -r '.data[]? | (select(.id == "'$2'")) | .attributes?.last_analysis_results?[]? | [.engine_name, .category, (.result // ""), "relationship_search"] | @tsv' "$1"
+}
+
+vt_malicious_vendors_from_verdicts_read() {
+    awk -F '\t' '$2 == "malicious" {print $1}'
+}
+
+vt_malware_names_from_verdicts_read() {
+    awk -F '\t' '$2 == "malicious" {print $3}'
+}
+
+vt_file_malicious_vendors_read() {
+    vt_file_verdicts_read "$1" | vt_malicious_vendors_from_verdicts_read
+}
+
+vt_analysis_malicious_vendors_read() {
+    vt_analysis_verdicts_read "$1" | vt_malicious_vendors_from_verdicts_read
+}
+
+vt_relationship_malicious_vendors_read() {
+    vt_relationship_verdicts_read "$1" "$2" | vt_malicious_vendors_from_verdicts_read
+}
+
+vt_relationship_malware_names_read() {
+    vt_relationship_verdicts_read "$1" "$2" | vt_malware_names_from_verdicts_read
+}
+
+vt_trim() {
+    local VALUE="$1"
+    VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
+    VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
+    echo "$VALUE"
+}
+
+vt_csv_contains() {
+    local LIST="$1"
+    local VALUE="$2"
+    local ITEM=''
+    local TRIMMED=''
+
+    IFS=',' read -r -a ITEMS <<< "$LIST"
+    for ITEM in "${ITEMS[@]}"; do
+        TRIMMED=$(vt_trim "$ITEM")
+        if [[ "$TRIMMED" == "$VALUE" ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+vt_engine_weight_get() {
+    local ITEM=''
+    local ENGINE=''
+    local WEIGHT=''
+
+    IFS=',' read -r -a ITEMS <<< "$VT_ENGINE_WEIGHTS"
+    for ITEM in "${ITEMS[@]}"; do
+        ITEM=$(vt_trim "$ITEM")
+        ENGINE="${ITEM%%=*}"
+        WEIGHT="${ITEM#*=}"
+        ENGINE=$(vt_trim "$ENGINE")
+        WEIGHT=$(vt_trim "$WEIGHT")
+        if [[ "$ENGINE" == "$1" ]]; then
+            echo "$WEIGHT"
+            return 0
+        fi
+    done
+    echo 1
+}
+
+vt_engine_policy_validate() {
+    local ITEM=''
+    local ENGINE=''
+    local WEIGHT=''
+
+    if ! [[ "$VT_ENGINE_SCORE_THRESHOLD" =~ ^[1-9][0-9]*$ ]]; then
+        error_exit "virustotal policy: VT_ENGINE_SCORE_THRESHOLD should be positive integer"
+    fi
+
+    if [ ! -z "$VT_ENGINE_WEIGHTS" ]; then
+        IFS=',' read -r -a ITEMS <<< "$VT_ENGINE_WEIGHTS"
+        for ITEM in "${ITEMS[@]}"; do
+            ITEM=$(vt_trim "$ITEM")
+            ENGINE="${ITEM%%=*}"
+            WEIGHT="${ITEM#*=}"
+            ENGINE=$(vt_trim "$ENGINE")
+            WEIGHT=$(vt_trim "$WEIGHT")
+            if [[ "$ITEM" != *"="* ]] || [ -z "$ENGINE" ] || ! [[ "$WEIGHT" =~ ^[1-9][0-9]*$ ]]; then
+                error_exit "virustotal policy: VT_ENGINE_WEIGHTS should use Engine=positive_integer"
+            fi
+        done
+    fi
+}
+
+vt_malicious_vendors_is_bad() {
+    local SCORE=0
+    local VENDOR=''
+    local WEIGHT=0
+
+    if [ ${#VENDORS[@]} -eq 0 ]; then
+        return 1
+    fi
+
+    for VENDOR in "${VENDORS[@]}"; do
+        WEIGHT=$(vt_engine_weight_get "$VENDOR")
+        SCORE=$((SCORE + WEIGHT))
+    done
+
+    if [[ "$SCORE" -ge "$VT_ENGINE_SCORE_THRESHOLD" ]]; then
+        return 0
+    fi
+    return 1
 }
 
 
@@ -147,6 +293,8 @@ error_exit()
         fi
     fi
 }
+
+vt_artifacts_init
 
 # read the options
 debug_set false
@@ -192,6 +340,8 @@ while true ; do
     esac
 done
 
+vt_engine_policy_validate
+
 # waiting between requests on virustotal - limit on some free account methods.
 # Enabled by REQUEST_LIMIT=true
 # 1 minute delay after 4 requests
@@ -213,15 +363,30 @@ quota_sleep() {
 
 false_positive_vendors_remove() {
     # begin remove elements from a bash array
-    for DEL in "${FALSE_POSITIVE_VENDOR[@]}"; do
-        for iii in "${!VENDORS[@]}"; do
+    VENDORS_TEMP=()
+    for iii in "${!VENDORS[@]}"; do
+        IS_FALSE_POSITIVE=false
+        for DEL in "${FALSE_POSITIVE_VENDOR[@]}"; do
             if [[ ${VENDORS[iii]} = $DEL ]]; then
-                unset 'VENDORS[iii]'
+                IS_FALSE_POSITIVE=true
+                break
             fi
         done
-    done
-    for iii in "${!VENDORS[@]}"; do
-        VENDORS_TEMP+=( "${VENDORS[iii]}" )
+        if [ "$IS_FALSE_POSITIVE" = false ] && [ ! -z "$IMAGE_LINK" ]; then
+            EXCLUSION_IMAGE_LINK=$IMAGE_LINK
+            if [ ! -z "$LOCAL_FILE" ]; then
+                EXCLUSION_IMAGE_LINK='*'
+            fi
+            set +e
+            /bin/bash $DEBUG$SCRIPTPATH/check-exclusions.sh -i "$EXCLUSION_IMAGE_LINK" --virustotal-engine "${VENDORS[iii]}"
+            if [[ $? -eq 1 ]] ; then
+                IS_FALSE_POSITIVE=true
+            fi
+            set -e
+        fi
+        if [ "$IS_FALSE_POSITIVE" = false ]; then
+            VENDORS_TEMP+=( "${VENDORS[iii]}" )
+        fi
     done
     VENDORS=("${VENDORS_TEMP[@]}")
     unset VENDORS_TEMP
@@ -244,6 +409,7 @@ hash_search() {
         -o "$JSON_SEARCH_FILE" \
         || error_exit "error virustotal.com: please check api-key, internet connection and retry"            
     debug_set true
+    vt_artifact_save "$JSON_SEARCH_FILE" "hash-search-$1"
 
     # check that the scan is completed by last_analysis_date
     LAST_ANALYSIS_DATE=`jq -r '.data[]?.attributes?.last_analysis_date?' $JSON_SEARCH_FILE` \
@@ -252,11 +418,11 @@ hash_search() {
         
         # get vendors detected malware
         VENDORS=()
-        VENDORS+=(`jq -r '.data[]?.attributes?.last_analysis_results?[]? | (select(.category == "malicious")) | .engine_name' $JSON_SEARCH_FILE`) \
+        VENDORS+=(`vt_file_malicious_vendors_read "$JSON_SEARCH_FILE"`) \
             || error_exit "error virustotal.com: please check api-key"
         false_positive_vendors_remove
         # if vendors count (after false positive vendors remove) > 0 then result is bad
-        if [ ${#VENDORS[@]} -gt 0 ] ; then  
+        if vt_malicious_vendors_is_bad ; then
             SEARCH_RESULT='bad'
         else 
             SEARCH_RESULT='good'   
@@ -276,16 +442,17 @@ analysis_search() {
         -o "$JSON_SEARCH_FILE" \
         || error_exit "error virustotal.com: please check api-key, internet connection and retry"            
     debug_set true
+    vt_artifact_save "$JSON_SEARCH_FILE" "analysis-$1"
     # check that the scan is completed by status
     ANALYSIS_STATUS=`jq -r '.data?.attributes?.status?' $JSON_SEARCH_FILE` \
         || error_exit "error virustotal.com: please check api-key" 
     if [ "$ANALYSIS_STATUS" == "completed" ]; then 
         # get vendors detected malware
         VENDORS=()
-        VENDORS+=(`jq -r '.data?.attributes?.results?[]? | (select(.category == "malicious")) | .engine_name' $JSON_SEARCH_FILE`) || error_exit "error virustotal.com: please check api-key"
+        VENDORS+=(`vt_analysis_malicious_vendors_read "$JSON_SEARCH_FILE"`) || error_exit "error virustotal.com: please check api-key"
         false_positive_vendors_remove
         # if vendors count (after false positive vendors remove) > 0 then result is bad
-        if [ ${#VENDORS[@]} -gt 0 ] ; then  
+        if vt_malicious_vendors_is_bad ; then
             SEARCH_RESULT='bad'
         else 
             SEARCH_RESULT='good'   
@@ -312,6 +479,7 @@ relationship_search() {
         -o "$JSON_RELATIONSHIP_FILE" \
         || error_exit "error virustotal.com: please check api-key, internet connection and retry"
     debug_set true    
+    vt_artifact_save "$JSON_RELATIONSHIP_FILE" "bundled-files-$1"
     REL_STAT=()
     REL_PATH=()
     REL_PATH+=(`jq -r '.data[]? | (select(.attributes?.last_analysis_stats?.malicious? != 0)) | .context_attributes?.filename?' $JSON_RELATIONSHIP_FILE`) || error_exit "error virustotal.com: please check api-key"
@@ -331,11 +499,11 @@ relationship_search() {
     do
         # get vendors detected malware
         VENDORS=()
-        VENDORS+=(`jq -r '.data[]? | (select(.id == "'${REL_ID[$ii]}'")) | .attributes?.last_analysis_results?[]? | (select(.category == "malicious")) | .engine_name?' $JSON_RELATIONSHIP_FILE`) || error_exit "error virustotal.com: please check api-key"
+        VENDORS+=(`vt_relationship_malicious_vendors_read "$JSON_RELATIONSHIP_FILE" "${REL_ID[$ii]}"`) || error_exit "error virustotal.com: please check api-key"
         false_positive_vendors_remove
        
         # if vendors count (after false positive vendors remove) > 0 then result is bad
-        if [ ${#VENDORS[@]} -gt 0 ] ; then  
+        if vt_malicious_vendors_is_bad ; then
             # get name if path empty
             if [ "${REL_PATH[$ii]}" == 'null' ]; then
                 REL_PATH[$ii]=`jq -r '.data[]? | (select(.id == "'${REL_ID[$ii]}'")) | .attributes?.meaningful_name?' $JSON_RELATIONSHIP_FILE` || error_exit "error virustotal.com: please check api-key"
@@ -357,7 +525,7 @@ relationship_search() {
             if [ "${REL_LABEL[$ii]}" == 'null' ]; then
                 REL_LABEL[$ii]='?'
                 REL_MALWARE_NAME_LIST=()
-                REL_MALWARE_NAME_LIST+=(`jq -r '.data[]? | (select(.id == "'${REL_ID[$ii]}'")) | .attributes?.last_analysis_results?[]? | (select(.category == "malicious")) | .result?' $JSON_RELATIONSHIP_FILE`) || error_exit "error virustotal.com: please check api-key"
+                REL_MALWARE_NAME_LIST+=(`vt_relationship_malware_names_read "$JSON_RELATIONSHIP_FILE" "${REL_ID[$ii]}"`) || error_exit "error virustotal.com: please check api-key"
                 # set the longest malware name for label =)
                 for (( jj=0; jj<${#REL_MALWARE_NAME_LIST[@]}; jj++ ));
                 do
@@ -420,6 +588,7 @@ upload() {
                 -o "$URL_FILE" \
                 || error_exit "error virustotal.com: please check api-key, internet connection and retry"
             debug_set true    
+            vt_artifact_save "$URL_FILE" "upload-url-$1"
             UPLOAD_URL=`jq -r '.data' $URL_FILE` \
                 || error_exit "error virustotal.com: please check api-key"
         fi
@@ -440,6 +609,7 @@ upload() {
             --form file="@$1" \
             || error_exit "error virustotal.com: please check api-key, internet connection and retry"
         debug_set true    
+        vt_artifact_save "$UPLOAD_JSON_FILE" "upload-$(basename "$1")"
         UPLOAD_RESULT=`jq -r '.data?.id' $UPLOAD_JSON_FILE` \
             || error_exit "error virustotal.com: please check api-key"    
     fi
