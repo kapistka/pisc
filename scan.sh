@@ -459,21 +459,6 @@ if [ ! -z "$VT_ENGINE_SCORE_THRESHOLD" ]; then
     export VT_ENGINE_SCORE_THRESHOLD
 fi
 if [ ! -z "$VT_ENGINE_WEIGHTS" ]; then
-    IFS=',' read -r -a VT_ENGINE_WEIGHT_ITEMS <<< "$VT_ENGINE_WEIGHTS"
-    for ITEM in "${VT_ENGINE_WEIGHT_ITEMS[@]}"; do
-        ITEM="${ITEM#"${ITEM%%[![:space:]]*}"}"
-        ITEM="${ITEM%"${ITEM##*[![:space:]]}"}"
-        ENGINE="${ITEM%%=*}"
-        WEIGHT="${ITEM#*=}"
-        ENGINE="${ENGINE#"${ENGINE%%[![:space:]]*}"}"
-        ENGINE="${ENGINE%"${ENGINE##*[![:space:]]}"}"
-        WEIGHT="${WEIGHT#"${WEIGHT%%[![:space:]]*}"}"
-        WEIGHT="${WEIGHT%"${WEIGHT##*[![:space:]]}"}"
-        if [[ "$ITEM" != *"="* ]] || [ -z "$ENGINE" ] || ! [[ "$WEIGHT" =~ ^[1-9][0-9]*$ ]]; then
-            echo "Invalid --vt-engine-weights value: $VT_ENGINE_WEIGHTS. Use Engine=positive_integer[,Engine=positive_integer]. Try '$0 --help' for more information."
-            exit_unset 2
-        fi
-    done
     export VT_ENGINE_WEIGHTS
 fi
 if ! [[ "$EPSS_MIN" =~ ^0\.[0-9]+$ ]]; then

@@ -151,7 +151,7 @@ vt_analysis_verdicts_read() {
 }
 
 vt_relationship_verdicts_read() {
-    jq -r '.data[]? | (select(.id == "'$2'")) | .attributes?.last_analysis_results?[]? | [.engine_name, .category, (.result // ""), "relationship_search"] | @tsv' "$1"
+    jq -r --arg id "$2" '.data[]? | (select(.id == $id)) | .attributes?.last_analysis_results?[]? | [.engine_name, .category, (.result // ""), "relationship_search"] | @tsv' "$1"
 }
 
 vt_malicious_vendors_from_verdicts_read() {
@@ -183,22 +183,6 @@ vt_trim() {
     VALUE="${VALUE#"${VALUE%%[![:space:]]*}"}"
     VALUE="${VALUE%"${VALUE##*[![:space:]]}"}"
     echo "$VALUE"
-}
-
-vt_csv_contains() {
-    local LIST="$1"
-    local VALUE="$2"
-    local ITEM=''
-    local TRIMMED=''
-
-    IFS=',' read -r -a ITEMS <<< "$LIST"
-    for ITEM in "${ITEMS[@]}"; do
-        TRIMMED=$(vt_trim "$ITEM")
-        if [[ "$TRIMMED" == "$VALUE" ]]; then
-            return 0
-        fi
-    done
-    return 1
 }
 
 vt_engine_weight_get() {
@@ -363,7 +347,16 @@ quota_sleep() {
 
 false_positive_vendors_remove() {
     # begin remove elements from a bash array
-    VENDORS_TEMP=()
+    local iii=''
+    local DEL=''
+    local IS_FALSE_POSITIVE=false
+    local EXCLUSION_IMAGE_LINK="$IMAGE_LINK"
+    local VENDORS_TEMP=()
+
+    if [ ! -z "$LOCAL_FILE" ]; then
+        EXCLUSION_IMAGE_LINK='*'
+    fi
+
     for iii in "${!VENDORS[@]}"; do
         IS_FALSE_POSITIVE=false
         for DEL in "${FALSE_POSITIVE_VENDOR[@]}"; do
@@ -372,11 +365,7 @@ false_positive_vendors_remove() {
                 break
             fi
         done
-        if [ "$IS_FALSE_POSITIVE" = false ] && [ ! -z "$IMAGE_LINK" ]; then
-            EXCLUSION_IMAGE_LINK=$IMAGE_LINK
-            if [ ! -z "$LOCAL_FILE" ]; then
-                EXCLUSION_IMAGE_LINK='*'
-            fi
+        if [ "$IS_FALSE_POSITIVE" = false ] && [ ! -z "$EXCLUSION_IMAGE_LINK" ]; then
             set +e
             /bin/bash $DEBUG$SCRIPTPATH/check-exclusions.sh -i "$EXCLUSION_IMAGE_LINK" --virustotal-engine "${VENDORS[iii]}"
             if [[ $? -eq 1 ]] ; then
@@ -389,7 +378,6 @@ false_positive_vendors_remove() {
         fi
     done
     VENDORS=("${VENDORS_TEMP[@]}")
-    unset VENDORS_TEMP
     # end remove elements from a bash array
 }
 
@@ -506,7 +494,7 @@ relationship_search() {
         if vt_malicious_vendors_is_bad ; then
             # get name if path empty
             if [ "${REL_PATH[$ii]}" == 'null' ]; then
-                REL_PATH[$ii]=`jq -r '.data[]? | (select(.id == "'${REL_ID[$ii]}'")) | .attributes?.meaningful_name?' $JSON_RELATIONSHIP_FILE` || error_exit "error virustotal.com: please check api-key"
+                REL_PATH[$ii]=`jq -r --arg id "${REL_ID[$ii]}" '.data[]? | (select(.id == $id)) | .attributes?.meaningful_name?' $JSON_RELATIONSHIP_FILE` || error_exit "error virustotal.com: please check api-key"
             fi
             # if path very long then cut it
             if [ ${#REL_PATH[$ii]} -gt 70 ] ; then 
@@ -536,7 +524,7 @@ relationship_search() {
             fi
 
             # check known_distributors - false positive
-            REL_KNOWN_DISTRIBUTORS=`jq -r '.data[]? | (select(.id == "'${REL_ID[$ii]}'")) | .attributes?.known_distributors?.distributors?[]?' $JSON_RELATIONSHIP_FILE` || error_exit "error virustotal.com: please check api-key"
+            REL_KNOWN_DISTRIBUTORS=`jq -r --arg id "${REL_ID[$ii]}" '.data[]? | (select(.id == $id)) | .attributes?.known_distributors?.distributors?[]?' $JSON_RELATIONSHIP_FILE` || error_exit "error virustotal.com: please check api-key"
             # malicious count must be less than 2
             if [[ ! -z "$REL_KNOWN_DISTRIBUTORS" ]] && [[  "${REL_MALICIOUS[$ii]}" -lt 2 ]]; then 
                 REL_LABEL[$ii]='file-distributed-by-'$REL_KNOWN_DISTRIBUTORS
