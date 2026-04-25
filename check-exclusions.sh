@@ -5,7 +5,7 @@
 # Notes:
 # The script checks exclusions listed in the $PISC_EXCLUSIONS_FILE file (whitelist.yaml by default).
 # The file format supports YAML syntax. Each exclusion rule applies to the specified image only.
-# Ensure that only one exclusion criterion (cve, package, malware, misconfig, days, tag) is used per rule to maintain clarity.
+# Ensure that only one exclusion criterion (cve, package, malware, misconfig, virustotal-engine, days, tag) is used per rule to maintain clarity.
 
 # whitelist.yaml file format:
 
@@ -25,6 +25,12 @@
 #   image:
 #     - "docker.io/pulumi/pulumi-python:*"
 #
+# - virustotal-engine:
+#     - "TrendMicro-HouseCall"
+#     - "Bkav Pro"
+#   image:
+#     - "registry.example/app:*"
+#
 # - tag:
 #     - "[0-9]"
 #   image:
@@ -38,7 +44,7 @@
 
 
 # Usage
-#     ./check-exclusions.sh -i image_link [ --cve | --package | --malware | --misconfig | --days | --tag  | --yara ]
+#     ./check-exclusions.sh -i image_link [ --cve | --package | --malware | --misconfig | --virustotal-engine | --days | --tag | --yara ]
 
 # Options:
 #     -i, --image string                Specify the Docker image to check (use `-i "*"` for local tar archive scan).
@@ -46,6 +52,7 @@
 #     --package string                  Check exclusions based on package name.
 #     --malware string                  Check exclusions for yara and virustotal based on a image name.
 #     --misconfig string                Check exclusions based on a Dockerfile misconfig
+#     --virustotal-engine string        Check exclusions based on a VirusTotal engine name.
 #     --days number                     Check exclusions based on image creation date (number of days for build date).
 #     --tag string                      Check exclusions based on image tag.
 #     --yara string                     Check exclusions based on yara rules. 
@@ -55,6 +62,7 @@
 # ./check-exclusions.sh -i alpine:latest --package linux-libc-dev
 # ./check-exclusions.sh -i alpine:latest --malware "*"
 # ./check-exclusions.sh -i alpine:latest --misconfig "*"
+# ./check-exclusions.sh -i alpine:latest --virustotal-engine "TrendMicro-HouseCall"
 # ./check-exclusions.sh -i alpine:latest --days 500
 # ./check-exclusions.sh -i alpine:latest --tag latest
 # ./check-exclusions.sh -i alpine:latest --yara "Semi-Auto-generated  - file STNC.php.php.txt"
@@ -91,13 +99,13 @@ error_exit()
 }
 
 # read the options
-ARGS=$(getopt -o i: --long cve:,days:,image:,malware:,misconfig:,package:,tag:,yara: -n $0 -- "$@")
+ARGS=$(getopt -o i: --long cve:,days:,image:,malware:,misconfig:,package:,tag:,virustotal-engine:,yara: -n $0 -- "$@")
 eval set -- "$ARGS"
 
 # extract options and their arguments into variables
 while true ; do
     case "$1" in
-        --cve|--days|--malware|--misconfig|--package|--tag|--yara)
+        --cve|--days|--malware|--misconfig|--package|--tag|--virustotal-engine|--yara)
             case "$2" in
                 "") shift 2 ;;
                 *) SEARCH_KEY=${1:2} ; SEARCH_VALUE=$2 ; shift 2 ;;
@@ -116,7 +124,7 @@ if [ -z "$IMAGE_LINK" ]; then
     error_exit "check exclusions: set -i argument"
 fi
 if [ -z "$SEARCH_KEY" ]; then
-    error_exit "check exclusions: set cve, package, malware, misconfig, days, tag, yara"
+    error_exit "check exclusions: set cve, package, malware, misconfig, virustotal-engine, days, tag, yara"
 fi
 if [ -z "$SEARCH_VALUE" ]; then
     error_exit "check exclusions: set searching value"
@@ -181,7 +189,7 @@ done < $CSV_FILE
 for (( i=0; i<${#IMAGE_LIST[@]}; i++ ));
 do
     if [[ $IMAGE_LINK == ${IMAGE_LIST[$i]} ]]; then
-        if [[ $SEARCH_KEY == "cve" || $SEARCH_KEY == "package" || $SEARCH_KEY == "malware" || $SEARCH_KEY == "misconfig" ]]; then
+        if [[ $SEARCH_KEY == "cve" || $SEARCH_KEY == "package" || $SEARCH_KEY == "malware" || $SEARCH_KEY == "misconfig" || $SEARCH_KEY == "virustotal-engine" ]]; then
             # use * pattern
             if [[ $SEARCH_VALUE == ${VALUE_LIST[$i]} ]]; then
                 exit 1
