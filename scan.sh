@@ -58,6 +58,8 @@ Flags:
   -v, --version                   Display version.
   --virustotal-key <string>       VirusTotal API key for malware scanning. Example: '--virustotal-key 0123456789abcdef'.
   --vulners-key <string>          Vulners.com API key (alternative to inthewild.io). Example: '--vulners-key 0123456789ABCDXYZ'.
+  --cve-db <string>               Path to local cve-db SQLite file. Replaces online EPSS + inthewild.io feeds entirely.
+                                  Example: '--cve-db /opt/db/cve_data.db'. Env: CVE_DB_PATH.
   -y, --yara                      Scanning with YARA rules for malware
   --yara-file <string>            Path to additional YARA rules. Example: '--yara-file /path/to/custom-rules.yar'.
 
@@ -74,6 +76,7 @@ CHECK_EXPLOITS=false
 CHECK_LATEST=false
 CHECK_MISCONFIG=false
 CHECK_YARA=false
+CVE_DB_PATH="${CVE_DB_PATH:-}"
 DEFAULT_OFFLINE_CACHE='/opt/db'
 EPSS_AND_FLAG=''
 EPSS_MIN='0.5'
@@ -160,7 +163,7 @@ print_version() {
 
 # read the options
 debug_set false
-ARGS=$(getopt -o dehf:i:lmvy --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key:,yara,yara-file: -n $0 -- "$@")
+ARGS=$(getopt -o dehf:i:lmvy --long auth-file:,cve-db:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key:,yara,yara-file: -n $0 -- "$@")
 eval set -- "$ARGS"
 debug_set true
 
@@ -171,6 +174,11 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) PISC_AUTH_FILE=$2 ; shift 2 ;;
+            esac ;;
+        --cve-db)
+            case "$2" in
+                "") shift 2 ;;
+                *) CVE_DB_PATH=$2 ; CHECK_EXPLOITS=true ; shift 2 ;;
             esac ;;
         -d|--date)
             case "$2" in
@@ -354,17 +362,24 @@ check_db() {
     fi
 }
 check_db_all() {
+    # auto-detect cve_data.db in current feeds directory
+    if [ -z "$CVE_DB_PATH" ] && [ -f "$PISC_FEEDS_DIR/cve_data.db" ]; then
+        CVE_DB_PATH="$PISC_FEEDS_DIR/cve_data.db"
+    fi
     if [ "$CHECK_EXPLOITS" = true ]; then
         check_db "$PISC_FEEDS_DIR/trivy/db/trivy.db"            900000000
         check_db "$PISC_FEEDS_DIR/trivy/java-db/trivy-java.db" 1300000000
         check_db "$PISC_FEEDS_DIR/grype/6/vulnerability.db"    1000000000
-        check_db "$PISC_FEEDS_DIR/epss.csv"                       9000000
-        check_db "$PISC_FEEDS_DIR/inthewild.db"                 148000000
+        # skip epss.csv and inthewild.db when using local cve-db
+        if [ -z "$CVE_DB_PATH" ]; then
+            check_db "$PISC_FEEDS_DIR/epss.csv"                   9000000
+            check_db "$PISC_FEEDS_DIR/inthewild.db"             148000000
+        fi
     fi
     if [ "$CHECK_YARA" = true ]; then
         check_db "$PISC_FEEDS_DIR/yara/rules.yar"                17000000
         check_db "$PISC_FEEDS_DIR/yara/rules.yar.comp"           38000000
-    fi 
+    fi
 }
 NO_FEEDS=false
 if [ ! -z "$OFFLINE_FEEDS_FLAG" ]; then
@@ -377,10 +392,11 @@ if [ ! -z "$OFFLINE_FEEDS_FLAG" ]; then
     fi
     if [ "$NO_FEEDS" = true ]; then
         echo "No feeds >>> $OFFLINE_FEEDS_FLAG set, but no feeds in $PISC_FEEDS_DIR. Use image with tag :$VERSION-feeds"
-        exit_unset 2    
+        exit_unset 2
     fi
 fi
 export PISC_FEEDS_DIR
+export CVE_DB_PATH
 # trivy dirty hack to resolv read-only DB https://github.com/aquasecurity/trivy/issues/3041
 if [ -f $PISC_FEEDS_DIR'/trivy/fanal/fanal.db.tmp' ]; then
     mkdir -p /tmp/.cache/trivy/fanal/
@@ -489,13 +505,23 @@ if [ "$CHECK_EXPLOITS" = true ]; then
     if [ -f $PISC_FEEDS_DIR'/trivy/db/metadata.json' ]; then
         FEEDS_DATE_TRIVY="            "$(jq -r '.UpdatedAt[0:10]' $PISC_FEEDS_DIR/trivy/db/metadata.json)"$P"
     fi
-    if [ -f $PISC_FEEDS_DIR'/epss.csv' ]; then
-        FEEDS_DATE_EPSS="             "$(sed -n 's/.*score_date:\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)T.*/\1/p' $PISC_FEEDS_DIR/epss.csv)"$P"
+    if [ -n "$CVE_DB_PATH" ] && [ -f "$CVE_DB_PATH" ]; then
+        _CVE_DB_DATE=$(sqlite3 "file:${CVE_DB_PATH}?mode=ro&immutable=1" \
+            "SELECT MAX(score_date) FROM epss_scores;" 2>/dev/null | cut -dT -f1)
+        _EXPL_DB_DATE=$(sqlite3 "file:${CVE_DB_PATH}?mode=ro&immutable=1" \
+            "SELECT MAX(date_added) FROM kev_entries;" 2>/dev/null | cut -dT -f1)
+
+        FEEDS_DATE_EPSS="             ${_CVE_DB_DATE}${P}"
+        FEEDS_DATE_EXPLOITS="         ${_EXPL_DB_DATE}${P}"
+    else
+        if [ -f $PISC_FEEDS_DIR'/epss.csv' ]; then
+            FEEDS_DATE_EPSS="             "$(sed -n 's/.*score_date:\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)T.*/\1/p' $PISC_FEEDS_DIR/epss.csv)"$P"
+        fi
+        if [ -f $PISC_FEEDS_DIR/'inthewild.db' ]; then
+            FEEDS_DATE_EXPLOITS="         "$(sqlite3 -column "file:$PISC_FEEDS_DIR/inthewild.db?mode=ro&immutable=1" "SELECT MAX("timeStamp")FROM exploits;" | cut -dT -f1)"$P"
+        fi
     fi
-    if [ -f $PISC_FEEDS_DIR/'inthewild.db' ]; then
-        FEEDS_DATE_EXPLOITS="         "$(sqlite3 -column "file:$PISC_FEEDS_DIR/inthewild.db?mode=ro&immutable=1" "SELECT MAX("timeStamp")FROM exploits;" | cut -dT -f1)"$P"
-    fi
-fi    
+fi
 if [ "$CHECK_YARA" = true ]; then
     if [ -f $PISC_FEEDS_DIR'/yara/rules.yar' ]; then
         FEEDS_DATE_YARA="             "$(sed -n 's/^ \* Creation Date:[[:space:]]*\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\).*/\1/p' $PISC_FEEDS_DIR/yara/rules.yar | head -n1)"$P"
@@ -521,13 +547,13 @@ if [ "$CHECK_YARA" = true ]; then
     fi
     EMOJI_OPT=$EMOJI_ON
 else
-    SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF yara"   
+    SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF yara"
 fi
 debug_set false
 if [ ! -z "$VIRUSTOTAL_API_KEY" ]; then
     SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON virustotal.com"
     EMOJI_OPT=$EMOJI_ON
-else 
+else
     SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF virustotal.com"
 fi
 debug_set true
@@ -545,14 +571,19 @@ if [ "$CHECK_EXPLOITS" = true ] ; then
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Trivy $FEEDS_DATE_TRIVY"
     else
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF Trivy"
-    fi    
+    fi
     if [ "$SCANNER" == "grype" ] || [ "$SCANNER" == "all" ] ; then
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Grype $FEEDS_DATE_GRYPE"
     else
         SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_OFF Grype"
-    fi    
-    SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS $FEEDS_DATE_EPSS"
-    SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Exploits $FEEDS_DATE_EXPLOITS"
+    fi
+    if [ -n "$CVE_DB_PATH" ]; then
+        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS $FEEDS_DATE_EPSS"
+        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Exploits $FEEDS_DATE_EXPLOITS"
+    else
+        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON EPSS $FEEDS_DATE_EPSS"
+        SCANNER_MSG=$SCANNER_MSG$'\n '"      $EMOJI_ON Exploits $FEEDS_DATE_EXPLOITS"
+    fi
     if [ -z "$OFFLINE_FEEDS_FLAG" ]; then
         SCANNER_MSG=$SCANNER_MSG$'\n '"       feeds: online"
     else
