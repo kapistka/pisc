@@ -20,6 +20,7 @@
 # https://github.com/opencontainers/runc/security/advisories/GHSA-9493-h29p-rfm2
 # https://github.com/opencontainers/runc/security/advisories/GHSA-qw9x-cqr3-wc7r
 # https://nvidia.custhelp.com/app/answers/detail/a_id/5659
+# https://github.com/advisories/GHSA-fqw6-gf59-qr4w
 
 set -Eeo pipefail
 
@@ -36,6 +37,7 @@ RULE_ID=(
     "cve-2025-31133-dev-null"
     "cve-2025-52565-dev-console"
     "cve-2025-23267-ldcache-link"
+    "cve-2026-46680-large-numeric-user"
 )
 RULE_SCOPE=(
     "json"
@@ -50,6 +52,7 @@ RULE_SCOPE=(
     "layer"
     "layer"
     "layer"
+    "config"
 )
 RULE_PATTERN=(
     "/proc/(1|self)/fd/"
@@ -64,6 +67,7 @@ RULE_PATTERN=(
     "^[^c].*[[:space:]](\\./)?dev/null([[:space:]]|$| -> )"
     "^[^c].*[[:space:]](\\./)?dev/console([[:space:]]|$| -> )"
     "^[lh].*[[:space:]](\\./)?etc/ld\\.so\\.cache([[:space:]]|$| -> )"
+    ""
 )
 RULE_MESSAGE=(
     "CVE-2024-21626 runC Escape"
@@ -78,6 +82,7 @@ RULE_MESSAGE=(
     "CVE-2025-31133 suspicious /dev/null replacement in layer"
     "CVE-2025-52565 suspicious /dev/console replacement in layer"
     "CVE-2025-23267 suspicious /etc/ld.so.cache link in layer"
+    "CVE-2026-46680 possible containerd runAsNonRoot bypass"
 )
 RULE_URL=(
     "https://nitroc.org/en/posts/cve-2024-21626-illustrated/"
@@ -92,6 +97,7 @@ RULE_URL=(
     "https://github.com/opencontainers/runc/security/advisories/GHSA-9493-h29p-rfm2"
     "https://github.com/opencontainers/runc/security/advisories/GHSA-qw9x-cqr3-wc7r"
     "https://nvidia.custhelp.com/app/answers/detail/a_id/5659"
+    "https://github.com/advisories/GHSA-fqw6-gf59-qr4w"
 )
 
 # var init
@@ -236,6 +242,47 @@ scan_json_rules()
     done
 }
 
+is_outside_int32()
+{
+    local value="$1"
+
+    awk -v value="$value" '
+        BEGIN {
+            if (value !~ /^[-+]?[0-9]+$/) {
+                exit 1
+            }
+            if (value + 0 > 2147483647 || value + 0 < -2147483648) {
+                exit 0
+            }
+            exit 1
+        }
+    '
+}
+
+scan_config_rules()
+{
+    local json_file=''
+    local user_value=''
+    local user_name=''
+
+    for json_file in "$PISC_OUT_DIR/image"/*.json
+    do
+        [ -f "$json_file" ] || continue
+        user_value=$(jq -r '.config.User // .container_config.User // empty' "$json_file" 2>/dev/null || true)
+        [ -n "$user_value" ] || continue
+        user_name="${user_value%%:*}"
+        for (( i=0; i<${#RULE_ID[@]}; i++ ));
+        do
+            if [ "${RULE_SCOPE[$i]}" != "config" ]; then
+                continue
+            fi
+            if is_outside_int32 "$user_name"; then
+                handle_rule_match "$i" "$(basename "$json_file"): User=$user_value"
+            fi
+        done
+    done
+}
+
 scan_layer_rules()
 {
     local layer_file=''
@@ -269,6 +316,7 @@ fi
 echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> scan misconfiguration\033[0K\r"
 
 scan_json_rules
+scan_config_rules
 scan_layer_rules
 
 # result: output to console and write to file
