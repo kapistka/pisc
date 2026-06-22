@@ -38,7 +38,6 @@ if [[ "$-" == *x* ]]; then
 fi
 
 INPUT_FILE=$PISC_OUT_DIR'/scan-vulnerabilities.cve'
-JSON_FILE=$PISC_OUT_DIR'/scan-inthewild-io.json'
 DB_FILE=$PISC_FEEDS_DIR'/inthewild.db'
 RES_FILE=$PISC_OUT_DIR'/scan-inthewild-io.result'
 ERROR_FILE=$PISC_OUT_DIR'/scan-inthewild-io.error'

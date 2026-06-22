@@ -538,8 +538,8 @@ reduce-size() {
         # function mime-types with exteded logic
         mime-types $1
         echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> reduce layer size $FILES_COUNTER/$FILES_TOTAL (`echo $SIZE_LAYER | numfmt --to=iec`)\033[0K\r"
-        # pack files to upload (compression doesn't make much sense)
-        eval tar -cf "$IMAGE_DIR/tmp.tar" -C $IMAGE_DIR/0 -T $1.list $DEBUG_TAR
+        # pack files to upload deterministically (compression doesn't make much sense)
+        eval tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -cf "$IMAGE_DIR/tmp.tar" -C $IMAGE_DIR/0 -T $1.list $DEBUG_TAR
         SHA256=`sha256sum $IMAGE_DIR/tmp.tar | awk '{ print $1 }'`
         `mv $IMAGE_DIR/tmp.tar $IMAGE_DIR/$SHA256.tar` debug_null
         # check size again
@@ -580,8 +580,8 @@ reduce-size() {
             if [ -f $1.list.reduce-tar.tmp ]; then
                 `mv $1.list.reduce-tar.tmp $1.list.reduce-tar` debug_null
             fi  
-            # pack files to upload (compression important for tar-metadata)
-            eval tar -czf "$IMAGE_DIR/tmp.tar" -C $IMAGE_DIR/0 -T $1.list.reduce-tar $DEBUG_TAR
+            # pack files to upload deterministically (compression doesn't make much sense)
+            eval tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -cf "$IMAGE_DIR/tmp.tar" -C $IMAGE_DIR/0 -T $1.list.reduce-tar $DEBUG_TAR
             SHA256=`sha256sum $IMAGE_DIR/tmp.tar | awk '{ print $1 }'`
             `mv $IMAGE_DIR/tmp.tar $IMAGE_DIR/$SHA256.tar` debug_null
         fi
@@ -619,6 +619,8 @@ fi
 
 # list of layer hashes to be searched or uploaded
 LIST_LAYERS_TO_ANALYSIS=()
+# list of original layer hashes for output
+LIST_LAYERS_TO_PRINT=()
 # list of reduced layers (true/false)
 LIST_LAYERS_REDUCE=()
 # go through layers-archives
@@ -630,18 +632,21 @@ do
     FILES_COUNTER=$((FILES_COUNTER+1))
     IS_ANALYSIS=false
     IS_BIG_LAYER_REDUCE=false
+    original_filename="${f##*/}"
+    original_filename="${original_filename%.*}"
     unpack $f
     mime-types $f
     if [ "$IS_ANALYSIS" = true ]; then
+        LIST_LAYERS_TO_PRINT+=($original_filename)
         # reduce layer size if it more when 650 MB
         reduce-size $f
         # if malware mime-type is found the layer is to be scanned
         filename="${f##*/}"
         filename="${filename%.*}"
         LIST_LAYERS_TO_ANALYSIS+=($filename)
+        # reduce layers to list, so dont do advanced malware search for reduced
+        LIST_LAYERS_REDUCE+=($IS_BIG_LAYER_REDUCE)
     fi
-    # reduce layers to list, so dont do advanced malware search for reduced
-    LIST_LAYERS_REDUCE+=($IS_BIG_LAYER_REDUCE)
 done
 
 # looking for layer hashes in virustotal
@@ -717,6 +722,7 @@ LIST_RESULT_ADV=()
 LIST_LAYERS_TO_ANALYSIS_ADV=()
 LIST_UPLOAD_ID_ADV=()
 if [ "$IS_OK" = false ] && [ "$DONT_ADV_SEARCH" = false ]; then
+    IS_UPLOAD=false
     for (( i=0; i<${#LIST_LAYERS_TO_ANALYSIS[@]}; i++ ));
     do
         LIST_RESULT_ADV[$i]='unknown'
@@ -729,13 +735,16 @@ if [ "$IS_OK" = false ] && [ "$DONT_ADV_SEARCH" = false ]; then
             
             echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> advanced malware analysis (pack)\033[0K\r"
 
+            # pack files to upload deterministically (with no compression before)
+            eval tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -cf "$IMAGE_DIR/tmp.tar.raw" -C $IMAGE_DIR/0 -T $IMAGE_DIR/${LIST_LAYERS_TO_ANALYSIS[$i]}.tar.list $DEBUG_TAR
             # check if original layer was compressed
-            if (file ${LIST_LAYERS_TO_ANALYSIS[$i]}.tar | grep -q compressed ) ; then
-                # pack files to upload  (with compression)
-                eval tar -czf "$IMAGE_DIR/tmp.tar" -C $IMAGE_DIR/0 -T $IMAGE_DIR/${LIST_LAYERS_TO_ANALYSIS[$i]}.tar.list $DEBUG_TAR
+            if file "$IMAGE_DIR/${LIST_LAYERS_TO_ANALYSIS[$i]}.tar" | grep -q compressed ; then
+                # compress deterministically (tar -z is non-deterministic)
+                gzip -nq -c "$IMAGE_DIR/tmp.tar.raw" > "$IMAGE_DIR/tmp.tar"
+                eval "rm -f $IMAGE_DIR/tmp.tar.raw"
             else
-                # pack files to upload  (without compression)
-                eval tar -cf "$IMAGE_DIR/tmp.tar" -C $IMAGE_DIR/0 -T $IMAGE_DIR/${LIST_LAYERS_TO_ANALYSIS[$i]}.tar.list $DEBUG_TAR
+                # rename with no compression
+                eval "mv $IMAGE_DIR/tmp.tar.raw $IMAGE_DIR/tmp.tar"
             fi   
             SHA256=`sha256sum $IMAGE_DIR/tmp.tar | awk '{ print $1 }'`
             `mv $IMAGE_DIR/tmp.tar $IMAGE_DIR/$SHA256.tar` debug_null
@@ -744,8 +753,6 @@ if [ "$IS_OK" = false ] && [ "$DONT_ADV_SEARCH" = false ]; then
             LIST_LAYERS_TO_ANALYSIS_ADV[$i]=$SHA256
             hash_search $SHA256
             LIST_RESULT_ADV[$i]=$SEARCH_RESULT
-            
-            IS_UPLOAD=false
 
             # upload tar with executables inside
             if [ "${LIST_RESULT_ADV[$i]}" == "unknown" ]; then
@@ -755,7 +762,7 @@ if [ "$IS_OK" = false ] && [ "$DONT_ADV_SEARCH" = false ]; then
                     LIST_RESULT_ADV[$i]='upload'
                     LIST_UPLOAD_ID_ADV[$i]=$UPLOAD_RESULT
                     IS_UPLOAD=true
-                fi 
+                fi
             fi
             # we need to delete this tar so that 
             # it does not upload onto the virustotal 
@@ -859,14 +866,14 @@ if [ "$IS_OK" = false ]; then
     do
         if [ "${LIST_RESULT[$i]}" == "bad" ]; then 
             if [ "${LIST_LAYERS_REDUCE[$i]}" == false ]; then
-                RESULT_MESSAGE=$RESULT_MESSAGE$'\n''   layer:'${LIST_LAYERS_TO_ANALYSIS[$i]:0:8}
+                RESULT_MESSAGE=$RESULT_MESSAGE$'\n''   layer:'${LIST_LAYERS_TO_PRINT[$i]:0:8}
             else
-                RESULT_MESSAGE=$RESULT_MESSAGE$'\n''   layer:'${LIST_LAYERS_TO_ANALYSIS[$i]:0:8}' (reduce)'
+                RESULT_MESSAGE=$RESULT_MESSAGE$'\n''   layer:'${LIST_LAYERS_TO_PRINT[$i]:0:8}' (reduce)'
             fi
             RESULT_MESSAGE=$RESULT_MESSAGE$'\n'${LIST_RESULT_PRINT[$i]}
         fi
         if [ "${LIST_RESULT[$i]}" == "unknown" ]; then
-            RESULT_MESSAGE=$RESULT_MESSAGE$'\n   layer '${LIST_LAYERS_TO_ANALYSIS[$i]:0:8}' is unknown for virustotal'
+            RESULT_MESSAGE=$RESULT_MESSAGE$'\n   layer '${LIST_LAYERS_TO_PRINT[$i]:0:8}' is unknown for virustotal'
         fi
     done
 fi

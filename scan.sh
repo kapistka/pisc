@@ -4,7 +4,7 @@
 
 set -Eeo pipefail
 
-VERSION='v0.19.0'
+VERSION='v0.20.0-rc1'
 
 usage() {
     cat <<EOF
@@ -37,7 +37,7 @@ Flags:
   --auth-file <string>            Path to the auth file (see 'scan-download-unpack.sh#L14')
   -d, --date                      Check image age against threshold (default: 365 days).
   --d-days <int>                  Custom threshold for build date check (in days). Example: '--d-days 180'.
-  -e, --exploits                  Check for vulnerabilities with known exploits (using Trivy + Grype + inthewild.io + empiricalsecurity.com).
+  -e, --exploits                  Check for vulnerabilities with known exploits (using Trivy + Grype + inthewild.io + kev + empiricalsecurity.com).
   --epss-and                      Use AND logic to combine EPSS score and exploit presence. If disabled, OR logic is applied (default: OR).
   --epss-min <float>              Minimum EPSS score threshold used for filtering vulnerabilities (default: 0.5).
   --exclusions-file <string>      Path to the exclusions file (see 'check-exclusion.sh#L5')
@@ -57,7 +57,6 @@ Flags:
   --trivy-token <string>          Authentication token for Trivy server. Example: '--trivy-token 0123456789abZ'.
   -v, --version                   Display version.
   --virustotal-key <string>       VirusTotal API key for malware scanning. Example: '--virustotal-key 0123456789abcdef'.
-  --vulners-key <string>          Vulners.com API key (alternative to inthewild.io). Example: '--vulners-key 0123456789ABCDXYZ'.
   -y, --yara                      Scanning with YARA rules for malware
   --yara-file <string>            Path to additional YARA rules. Example: '--yara-file /path/to/custom-rules.yar'.
 
@@ -90,7 +89,6 @@ SHOW_EXPLOITS_FLAG=''
 TRIVY_SERVER=''
 TRIVY_TOKEN=''
 VIRUSTOTAL_API_KEY=''
-VULNERS_API_KEY=''
 FILE_SCAN=''
 IS_LIST_IMAGES=false
 
@@ -160,7 +158,7 @@ print_version() {
 
 # read the options
 debug_set false
-ARGS=$(getopt -o dehf:i:lmvy --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,vulners-key:,yara,yara-file: -n $0 -- "$@")
+ARGS=$(getopt -o dehf:i:lmvy --long auth-file:,date,d-days:,epss-and,epss-min:,exclusions-file:,exploits,file:,help,ignore-errors,image:,latest,misconfig,offline-feeds,output-dir:,scanner:,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,version,virustotal-key:,yara,yara-file: -n $0 -- "$@")
 eval set -- "$ARGS"
 debug_set true
 
@@ -274,11 +272,6 @@ while true ; do
                 "") shift 2 ;;
                 *) debug_set false ; VIRUSTOTAL_API_KEY=$2 ; debug_set true ; shift 2 ;;
             esac ;;
-        --vulners-key)
-            case "$2" in
-                "") shift 2 ;;
-                *) debug_set false ; VULNERS_API_KEY=$2 ; debug_set true ; CHECK_EXPLOITS=true ; shift 2 ;;
-            esac ;;
         -y|--yara)
             case "$2" in
                 "") shift 1 ;;
@@ -339,6 +332,14 @@ else
     echo "Output dir >>> No access to write $PISC_OUT_DIR. Try '$0 --help' for more information."
     exit_unset 2
 fi
+# check and copy inthewild.json
+if [ ! -f $PISC_FEEDS_DIR'/inthewild.json' ]; then
+    if [ -f $SCRIPTPATH'/inthewild.json' ]; then
+        cp $SCRIPTPATH'/inthewild.json' $PISC_FEEDS_DIR'/inthewild.json'
+    else
+        error_exit "inthewild.json not found"
+    fi    
+fi
 # OFFLINE_FEEDS_FLAG and DB size
 check_db() {
     if [ "$NO_FEEDS" = false ]; then
@@ -355,11 +356,16 @@ check_db() {
 }
 check_db_all() {
     if [ "$CHECK_EXPLOITS" = true ]; then
-        check_db "$PISC_FEEDS_DIR/trivy/db/trivy.db"            900000000
-        check_db "$PISC_FEEDS_DIR/trivy/java-db/trivy-java.db" 1300000000
-        check_db "$PISC_FEEDS_DIR/grype/6/vulnerability.db"    1000000000
+        if [ "$SCANNER" == "trivy" ] || [ "$SCANNER" == "all" ] ; then
+            check_db "$PISC_FEEDS_DIR/trivy/db/trivy.db"              900000000
+            check_db "$PISC_FEEDS_DIR/trivy/java-db/trivy-java.db"   1300000000
+        fi
+        if [ "$SCANNER" == "grype" ] || [ "$SCANNER" == "all" ] ; then
+            check_db "$PISC_FEEDS_DIR/grype/6/vulnerability.db"      1000000000
+        fi
         check_db "$PISC_FEEDS_DIR/epss.csv"                       9000000
-        check_db "$PISC_FEEDS_DIR/inthewild.db"                 148000000
+        check_db "$PISC_FEEDS_DIR/inthewild.json"                 8800000
+        check_db "$PISC_FEEDS_DIR/kev.json"                       1400000
     fi
     if [ "$CHECK_YARA" = true ]; then
         check_db "$PISC_FEEDS_DIR/yara/rules.yar"                17000000
@@ -457,7 +463,7 @@ debug_set true
 # check tools exist
 IS_TOOLS_NOT_EXIST=false
 TOOLS_NOT_EXIST_STR=''
-LIST_TOOLS=(awk column curl file find jq sha256sum skopeo sqlite3 tar tr trivy yq zcat grype yara yarac unzip)
+LIST_TOOLS=(awk column curl file find jq sha256sum skopeo tar tr trivy yq zcat grype yara yarac unzip)
 for (( i=0; i<${#LIST_TOOLS[@]}; i++ ));
 do
     if ! command -v ${LIST_TOOLS[$i]} &> /dev/null
@@ -492,8 +498,8 @@ if [ "$CHECK_EXPLOITS" = true ]; then
     if [ -f $PISC_FEEDS_DIR'/epss.csv' ]; then
         FEEDS_DATE_EPSS="             "$(sed -n 's/.*score_date:\([0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}\)T.*/\1/p' $PISC_FEEDS_DIR/epss.csv)"$P"
     fi
-    if [ -f $PISC_FEEDS_DIR/'inthewild.db' ]; then
-        FEEDS_DATE_EXPLOITS="         "$(sqlite3 -column "file:$PISC_FEEDS_DIR/inthewild.db?mode=ro&immutable=1" "SELECT MAX("timeStamp")FROM exploits;" | cut -dT -f1)"$P"
+    if [ -f $PISC_FEEDS_DIR/'kev.json' ]; then
+        FEEDS_DATE_EXPLOITS="         "$(jq -r '.dateReleased[0:10]' $PISC_FEEDS_DIR/kev.json)"$P"
     fi
 fi    
 if [ "$CHECK_YARA" = true ]; then
@@ -667,9 +673,6 @@ scan_image() {
     if [ "$CHECK_EXPLOITS" = true ]; then
         debug_set false
         PARAMS=" --scanner $SCANNER $OFFLINE_FEEDS_FLAG"
-        if [ ! -z "$VULNERS_API_KEY" ]; then
-            PARAMS=$PARAMS" --vulners-key $VULNERS_API_KEY"
-        fi
         if [ ! -z "$TRIVY_SERVER" ]; then
             PARAMS=$PARAMS" --trivy-server $TRIVY_SERVER --trivy-token $TRIVY_TOKEN"
         fi
