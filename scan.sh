@@ -332,14 +332,6 @@ else
     echo "Output dir >>> No access to write $PISC_OUT_DIR. Try '$0 --help' for more information."
     exit_unset 2
 fi
-# check and copy inthewild.json
-if [ ! -f $PISC_FEEDS_DIR'/inthewild.json' ]; then
-    if [ -f $SCRIPTPATH'/inthewild.json' ]; then
-        cp $SCRIPTPATH'/inthewild.json' $PISC_FEEDS_DIR'/inthewild.json'
-    else
-        error_exit "inthewild.json not found"
-    fi    
-fi
 # OFFLINE_FEEDS_FLAG and DB size
 check_db() {
     if [ "$NO_FEEDS" = false ]; then
@@ -387,6 +379,14 @@ if [ ! -z "$OFFLINE_FEEDS_FLAG" ]; then
     fi
 fi
 export PISC_FEEDS_DIR
+# check and copy inthewild.json
+if [ ! -f $PISC_FEEDS_DIR'/inthewild.json' ]; then
+    if [ -f $SCRIPTPATH'/inthewild.json' ]; then
+        cp $SCRIPTPATH'/inthewild.json' $PISC_FEEDS_DIR'/inthewild.json'
+    else
+        error_exit "inthewild.json not found"
+    fi    
+fi
 # trivy dirty hack to resolv read-only DB https://github.com/aquasecurity/trivy/issues/3041
 if [ -f $PISC_FEEDS_DIR'/trivy/fanal/fanal.db.tmp' ]; then
     mkdir -p /tmp/.cache/trivy/fanal/
