@@ -1,10 +1,14 @@
 FROM kapistka/pisc:v0.20.0
 
-ENV GRYPE_DB_CACHE_DIR=/opt/db/grype \
-  GRYPE_DB_AUTO_UPDATE=false \
-  TRIVY_CACHE_DIR=/opt/db/trivy
+ENV CACHE_DIR=/opt/db \
+  TRIVY_CACHE_DIR=${CACHE_DIR}/trivy \
+  GRYPE_DB_CACHE_DIR=${CACHE_DIR}/grype \
+  GRYPE_DB_AUTO_UPDATE=false
 
 USER root
+
+RUN mkdir -p ${CACHE_DIR}; \
+  cp inthewild.json ${CACHE_DIR}/inthewild.json
 
 RUN TODAY=$(date -u +%F) \
   && YESTERDAY=$(date -u -d "-1 day" +%F) \
@@ -14,19 +18,17 @@ RUN TODAY=$(date -u +%F) \
   curl -sSL --fail "https://epss.empiricalsecurity.com/epss_scores-${YESTERDAY}.csv.gz" -o /tmp/epss.csv.gz && \
   echo "Downloaded EPSS for ${YESTERDAY}"; \
   fi \
-  && zcat /tmp/epss.csv.gz > /opt/db/epss.csv \
+  && zcat /tmp/epss.csv.gz > ${CACHE_DIR}/epss.csv \
   && rm /tmp/epss.csv.gz
 
 RUN set -euo pipefail; \
   curl -fsSL "https://github.com/YARAHQ/yara-forge/releases/latest/download/yara-forge-rules-extended.zip" \
     -o "/tmp/yara-forge-rules-extended.zip"; \
-  mkdir -p "/opt/db/yara"; \
+  mkdir -p "${CACHE_DIR}/yara"; \
   unzip -o "/tmp/yara-forge-rules-extended.zip" -d "/tmp/unpacked"; \
-  mv -f "/tmp/unpacked/packages/extended/yara-rules-extended.yar" "/opt/db/yara/rules.yar"; \
-  yarac "/opt/db/yara/rules.yar" "/opt/db/yara/rules.yar.comp"; \
+  mv -f "/tmp/unpacked/packages/extended/yara-rules-extended.yar" "${CACHE_DIR}/yara/rules.yar"; \
+  yarac "${CACHE_DIR}/yara/rules.yar" "${CACHE_DIR}/yara/rules.yar.comp"; \
   rm -rf "/tmp/unpacked" "/tmp/yara-forge-rules-extended.zip"
-
-COPY inthewild.json /opt/db/inthewild.json
 
 RUN mkdir -p ${GRYPE_DB_CACHE_DIR} ${TRIVY_CACHE_DIR} \
   && grype db update \
@@ -35,8 +37,8 @@ RUN mkdir -p ${GRYPE_DB_CACHE_DIR} ${TRIVY_CACHE_DIR} \
   && trivy image --disable-telemetry --cache-dir ${TRIVY_CACHE_DIR} --scanners vuln --skip-db-update --debug alpine \
   && mv ${TRIVY_CACHE_DIR}/fanal/fanal.db ${TRIVY_CACHE_DIR}/fanal/fanal.db.tmp \
   && ln -s /tmp/.cache/trivy/fanal/fanal.db ${TRIVY_CACHE_DIR}/fanal/fanal.db \
-  && chown -R 65532:65532 /opt/db \
-  && chmod -R 555 /opt/db
+  && chown -R 65532:65532 ${CACHE_DIR} \
+  && chmod -R 555 ${CACHE_DIR}
 
 USER nonroot
 WORKDIR /home/nonroot
