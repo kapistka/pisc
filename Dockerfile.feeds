@@ -8,7 +8,7 @@ ENV CACHE_DIR=/opt/db \
 USER root
 
 RUN mkdir -p ${CACHE_DIR}; \
-  cp inthewild.json ${CACHE_DIR}/inthewild.json
+  cp /home/nonroot/inthewild.json ${CACHE_DIR}/inthewild.json
 
 RUN TODAY=$(date -u +%F) \
   && YESTERDAY=$(date -u -d "-1 day" +%F) \
