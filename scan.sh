@@ -382,6 +382,7 @@ export PISC_FEEDS_DIR
 # check and copy inthewild.json
 if [ ! -f $PISC_FEEDS_DIR'/inthewild.json' ]; then
     if [ -f $SCRIPTPATH'/inthewild.json' ]; then
+        mkdir -p $PISC_FEEDS_DIR
         cp $SCRIPTPATH'/inthewild.json' $PISC_FEEDS_DIR'/inthewild.json'
     else
         error_exit "inthewild.json not found"
