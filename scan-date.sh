@@ -107,7 +107,7 @@ fi
 
 # check the date of the image by downloading metadata
 echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> check date\033[0K\r"
-skopeo $DEBUG_SKOPEO inspect "$SKOPEO_INPUT" $SKOPEO_AUTH_FLAG > $JSON_FILE
+skopeo $DEBUG_SKOPEO inspect --no-tags "$SKOPEO_INPUT" $SKOPEO_AUTH_FLAG > $JSON_FILE
 CREATED_DATE=(`jq '.Created' $JSON_FILE | cut -b 2-11`) \
     || error_exit "$IMAGE_LINK >>> error image inspect"
 # if a copy error exit with error

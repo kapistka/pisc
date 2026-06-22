@@ -1,6 +1,18 @@
 v0.20.0
+Added
+    kev + inthewild.io feeds are used together for exploit info
+    inthewild.io feeds now offline always (EOL 2025/01)
+    exploit dates in output
+Changed
+    vulners support has ended
+    no more exploit links
+    exploit/epss info search more fast now
+    check date a little bit fast now
+        time /bin/bash ./scan.sh -e --offline-feeds --scanner trivy -i kapistka/log4shell:0.0.3-nonroot
+            was: real 0m20.656s
+            now: real  0m7.664s
 Fixed
-    virustotal deterministic search
+    virustotal deterministic search - no rescan for the same layers
     virustotal layer print
     virustotal advanced scan for reduced layers
     virustotal minor fixes

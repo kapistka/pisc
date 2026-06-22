@@ -16,7 +16,6 @@
 #     --tar string                      check local image-tar. Example: --tar /path/to/private-image.tar
 #     --trivy-server string             use trivy server if you can. Specify trivy URL, example: --trivy-server http://trivy.something.io:8080
 #     --trivy-token string              use trivy server if you can. Specify trivy token, example: --trivy-token 0123456789abZ
-#     --vulners-key string              check exploitable vulnerabilities by vulners.com instead of inthewild.io. Specify vulners API-key, example: --vulners-key 0123456789ABCDXYZ
 # Example
 #     ./scan-vulnerabilities.sh -i kapistka/log4shell:0.0.3-nonroot
 
@@ -40,13 +39,12 @@ RESULT_MESSAGE=''
 SCANNER='all'
 SEVERITY='HIGH'
 SHOW_EXPLOITS=false
-VULNERS_API_KEY=''
 
 C_RED='\033[0;31m'
 C_NIL='\033[0m'
 EMOJI_VULN='\U1F41E' # lady beetle
 EMOJI_EXCLUDE='\U1F648' # see-no-evil monkey
-EMOJI_EXPLOITATION='\U1F480' # SKULL
+EMOJI_CAMPAIGN_USE=$'\U1F480'   # 💀
 
 # it is important for run *.sh by ci-runner
 SCRIPTPATH="$( cd -- "$(dirname "$0")" >/dev/null 2>&1 ; pwd -P )"
@@ -72,9 +70,11 @@ debug_set() {
 CVE_FILE=$PISC_OUT_DIR'/scan-vulnerabilities.cve'
 # result this script for main output
 RES_FILE=$PISC_OUT_DIR'/scan-vulnerabilities.result'
-# results of trivy and grype
+# results of trivy, grype, exploits, epss
 RES_FILE_TRIVY=$PISC_OUT_DIR'/scan-trivy.result'
 RES_FILE_GRYPE=$PISC_OUT_DIR'/scan-grype.result'
+RES_FILE_EXPLOITS=$PISC_OUT_DIR'/scan-exploits.result'
+RES_FILE_EPSS=$PISC_OUT_DIR'/scan-epss.result'
 # temp cve file after sorting
 SORT_FILE=$PISC_OUT_DIR'/scan-vulnerabilities.sort'
 # temp cve file before sorting
@@ -101,7 +101,7 @@ error_exit()
 
 # read the options
 debug_set false
-ARGS=$(getopt -o i: --long dont-output-result,epss-and,epss-min:,ignore-errors,image:,scanner:,offline-feeds,severity-min:,show-exploits,tar:,trivy-server:,trivy-token:,vulners-key: -n $0 -- "$@")
+ARGS=$(getopt -o i: --long dont-output-result,epss-and,epss-min:,ignore-errors,image:,scanner:,offline-feeds,severity-min:,show-exploits,tar:,trivy-server:,trivy-token: -n $0 -- "$@")
 eval set -- "$ARGS"
 debug_set true
 
@@ -167,12 +167,7 @@ while true ; do
             case "$2" in
                 "") shift 2 ;;
                 *) debug_set false ; PARAMS_TRIVY=$PARAMS_TRIVY' --trivy-token '$2 ; debug_set true ; shift 2 ;;
-            esac ;;     
-        --vulners-key)
-            case "$2" in
-                "") shift 2 ;;
-                *) debug_set false ; VULNERS_API_KEY=$2 ; debug_set true ; shift 2 ;;
-            esac ;;              
+            esac ;;                  
         --) shift ; break ;;
         *) echo "Wrong usage! Try '$0 --help' for more information." ; exit 2 ;;
     esac
@@ -264,19 +259,15 @@ LIST_length=${#LIST_CVE[@]}
 cut -d'|' -f1 $TMP_FILE > $CVE_FILE
 
 # exploits
-LIST_EXPL=()
+LIST_IS_EXPLOIT=()
+LIST_DATE_EXPLOIT=()
+LIST_CAMPAIGN_USE=()
 if [ "$IS_ERROR" = false ]; then
-    # exploit analysis by vulners.com
-    if [ ! -z "$VULNERS_API_KEY" ]; then
-        debug_set false
-        /bin/bash $DEBUG$SCRIPTPATH/scan-vulners-com.sh --dont-output-result -i $IMAGE_LINK --vulners-key $VULNERS_API_KEY $IGNORE_ERRORS_FLAG
-        debug_set true
-        LIST_EXPL+=($(<$PISC_OUT_DIR/scan-vulners-com.result))
-    # exploit analysis by inthewild.io
-    else
-        /bin/bash $DEBUG$SCRIPTPATH/scan-inthewild-io.sh --dont-output-result -i $IMAGE_LINK $OFFLINE_FEEDS_FLAG $IGNORE_ERRORS_FLAG
-        LIST_EXPL+=($(<$PISC_OUT_DIR/scan-inthewild-io.result))
-    fi
+    # exploit analysis by kev + inthewild.io
+    /bin/bash $DEBUG$SCRIPTPATH/scan-exploits.sh --dont-output-result -i $IMAGE_LINK $OFFLINE_FEEDS_FLAG $IGNORE_ERRORS_FLAG
+    mapfile -t LIST_IS_EXPLOIT < <(awk -F'\t' '{print ($2!="-" ? "true" : "false")}' "$RES_FILE_EXPLOITS")
+    mapfile -t LIST_DATE_EXPLOIT < <(awk -F'\t' '{print ($2!="" ? $2 : "")}' "$RES_FILE_EXPLOITS")
+    mapfile -t LIST_CAMPAIGN_USE < <(awk -F'\t' '{print ($3!="" ? $3 : "")}' "$RES_FILE_EXPLOITS")
 fi
 
 # epss
@@ -290,7 +281,7 @@ if [ "$IS_ERROR" = false ]; then
             l="-"
         fi
         LIST_EPSS+=("$l")
-    done < "$PISC_OUT_DIR/epss.result"
+    done < "$RES_FILE_EPSS"
 fi
 
 # filtering by epss, exploit, exlusions
@@ -308,8 +299,8 @@ do
         EPSS_PASS=true
     fi
 
-    if { [ "$EPSS_AND" = true ] && ( [ "${LIST_EXPL[$i]}" == "true" ] && $EPSS_PASS ); } || \
-       { [ "$EPSS_AND" != true ] && ( [ "${LIST_EXPL[$i]}" == "true" ] || $EPSS_PASS ); }; then
+    if { [ "$EPSS_AND" = true ] && ( [ "${LIST_IS_EXPLOIT[$i]}" == "true" ] && $EPSS_PASS ); } || \
+       { [ "$EPSS_AND" != true ] && ( [ "${LIST_IS_EXPLOIT[$i]}" == "true" ] || $EPSS_PASS ); }; then
         # check exclusions
         /bin/bash $DEBUG$SCRIPTPATH/check-exclusions.sh -i $IMAGE_LINK --cve ${LIST_CVE[$i]}
         EXCL_CVE_RESULT=$?
@@ -319,21 +310,7 @@ do
             IS_EXLUDED=true
         else
             IS_EXPLOITABLE=true
-            F=$PISC_OUT_DIR/${LIST_CVE[$i]}.expl
-            if [ -s "$F" ]; then
-                EXPL_A_COUNT=$(wc -l < $F)
-                EXPL_B_COUNT=$(grep -c '^[[:space:]]*\\U1F480' $F)
-            else
-                EXPL_A_COUNT=0
-                EXPL_B_COUNT=0
-            fi
-            if [[ $EXPL_B_COUNT -gt 0 ]]; then
-                EXPL_A_COUNT=$((EXPL_A_COUNT-EXPL_B_COUNT))
-                EXPL_COUNT=$EXPL_A_COUNT"+"$EXPL_B_COUNT
-            else
-                EXPL_COUNT=$EXPL_A_COUNT
-            fi
-            RESULT_MESSAGE=$RESULT_MESSAGE$'\n '${LIST_CVE[$i]}' '${LIST_SEVERITY[$i]}' '${LIST_SCORE[$i]}' '${LIST_EPSS[$i]}' '$EXPL_COUNT' '${LIST_FIXED[$i]}' '${LIST_PKG[$i]}
+            RESULT_MESSAGE=$RESULT_MESSAGE$'\n '${LIST_CVE[$i]}' '${LIST_SEVERITY[$i]}' '${LIST_SCORE[$i]}' '${LIST_EPSS[$i]}' '${LIST_DATE_EXPLOIT[$i]}${LIST_CAMPAIGN_USE[$i]}' '${LIST_FIXED[$i]}' '${LIST_PKG[$i]}
         fi  
     fi	  
 done
@@ -342,38 +319,25 @@ set -e
 # result: output to console and write to file
 if [ "$IS_EXPLOITABLE" = true ]; then
     # begin draw beauty table
-    RESULT_MESSAGE=" CVE SEVERITY SCORE EPSS EXPL FIX PACKAGE"$RESULT_MESSAGE
+    RESULT_MESSAGE=" CVE SEVERITY SCORE EPSS EXPLOIT-DATE FIX PACKAGE"$RESULT_MESSAGE
     echo "$RESULT_MESSAGE" > $TMP_FILE
     column -t -s' ' $TMP_FILE > $RES_FILE
+    sed -Ei 's/([0-9]{4}-[0-9]{2}-[0-9]{2})-/\1  /' $RES_FILE
+    sed -Ei 's/^([[:space:]]*[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+[^[:space:]]+[[:space:]]+)-([[:space:]]|$)/\1- \2/' $RES_FILE
+    sed -Ei "s/([0-9]{4}-[0-9]{2}-[0-9]{2})\+/\1${EMOJI_CAMPAIGN_USE}/" $RES_FILE
+    sed -i '/EXPLOIT-DATE/ s/EXPLOIT-DATE/EXPLOIT-DATE /' $RES_FILE
+    sed -Ei 's/^(([^[:space:]]+[[:space:]]+){4})-/\1- /' $RES_FILE
     sed -i 's/^/ /' $RES_FILE
     RESULT_MESSAGE=$(<$RES_FILE)
     # end draw beauty table
     RESULT_MESSAGE="$EMOJI_VULN $C_RED$IMAGE_LINK$C_NIL >>> detected exploitable vulnerabilities"$'\n'$RESULT_MESSAGE 
-    # insert info about exploits
-    RESULT_MESSAGE_WITH_EXPL=""
-    mapfile -t LINES <<< "$RESULT_MESSAGE"
-    for (( i=0; i<${#LINES[@]}; i++ )); do
-        RESULT_MESSAGE_WITH_EXPL+="${LINES[$i]}"$'\n'
-        if [ "$SHOW_EXPLOITS" = true ]; then
-            # ignore 1 and 2 lines
-            if [[ $i -gt 1 ]]; then
-                CVE_ID=$(echo "${LINES[$i]}" | awk '{print $1}')
-                if [[ "$CVE_ID" == CVE-* ]]; then
-                    F="$PISC_OUT_DIR/$CVE_ID.expl"
-                    if [[ -f "$F" ]]; then
-                        RESULT_MESSAGE_WITH_EXPL+="$(cat "$F")"$'\n'
-                    fi
-                fi
-            fi
-        fi    
-    done  
     # whitelist
     if [ "$IS_EXLUDED" == "true" ]; then
-        RESULT_MESSAGE_WITH_EXPL=$RESULT_MESSAGE_WITH_EXPL'\n'"$EMOJI_EXCLUDE some CVEs or packages are whitelisted"
+        RESULT_MESSAGE=$RESULT_MESSAGE'\n'"$EMOJI_EXCLUDE some CVEs or packages are whitelisted"
     fi
-    echo "$RESULT_MESSAGE_WITH_EXPL" > $RES_FILE
+    echo "$RESULT_MESSAGE" > $RES_FILE
     if [ "$DONT_OUTPUT_RESULT" == "false" ]; then  
-        echo -e "$RESULT_MESSAGE_WITH_EXPL"
+        echo -e "$RESULT_MESSAGE"
     fi 
 else
     if [ "$IS_EXLUDED" == "false" ]; then 

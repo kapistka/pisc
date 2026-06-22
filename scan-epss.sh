@@ -38,10 +38,10 @@ if [[ "$-" == *x* ]]; then
 fi
 
 INPUT_FILE=$PISC_OUT_DIR'/scan-vulnerabilities.cve'
-DB_FILE=$PISC_FEEDS_DIR'/epss.csv'
+FEEDS_FILE=$PISC_FEEDS_DIR'/epss.csv'
 GZ_FILE=$PISC_FEEDS_DIR'/epss.csv.gz'
-RES_FILE=$PISC_OUT_DIR'/epss.result'
-ERROR_FILE=$PISC_OUT_DIR'/epss.error'
+RES_FILE=$PISC_OUT_DIR'/scan-epss.result'
+ERROR_FILE=$PISC_OUT_DIR'/scan-epss.error'
 eval "rm -f $RES_FILE $ERROR_FILE"
 touch $RES_FILE
 
@@ -97,72 +97,68 @@ while true ; do
     esac
 done
 
-IS_CACHED=false
-if [ -s "$DB_FILE" ]; then
-    # check date modification
-    if [ $(($(date +%s) - $(stat -c %Y "$DB_FILE"))) -le 90000 ]; then
-        IS_CACHED=true
+# check offline mode
+IS_CACHED=$OFFLINE_FEEDS
+if  [ "$IS_CACHED" = false ]; then
+    if [ -f "$FEEDS_FILE_KEV" ]; then
+        # check date modification
+        if [ $(($(date +%s) - $(stat -c %Y "$FEEDS_FILE"))) -le 90000 ]; then
+            IS_CACHED=true
+        fi
     fi
-    # check offline mode
-    if [ "$OFFLINE_FEEDS" = true ] ; then
-        IS_CACHED=true
-    fi
-fi
+fi    
 
 if  [ "$IS_CACHED" = false ]; then
-    rm -f $DB_FILE
+    rm -f $FEEDS_FILE
     IS_DOWNLOADED=false
     for i in $(seq 0 9); do
         d=$(date -d "-${i} day" +%F)
         F="epss_scores-${d}.csv.gz"
         URL="${URL_BASE}/${F}"
-        echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> downloading EPSS-${d} db\033[0K\r"
+        echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> downloading EPSS-${d} feeds\033[0K\r"
         if curl --connect-timeout 10 --max-time 10 -f $DEBUG_CURL -L "$URL" -o $GZ_FILE; then
             IS_DOWNLOADED=true
             break
         fi
     done
     if  [ "$IS_DOWNLOADED" = true ]; then
-        zcat "$GZ_FILE" > "$DB_FILE" || error_exit "error epss: bad file"
+        zcat "$GZ_FILE" > "$FEEDS_FILE" || error_exit "error epss: bad file"
     else
         error_exit "error epss: please check internet connection and retry"
     fi
-    # check db
-    if [ ! -f $DB_FILE ]; then
-        error_exit "$DB_FILE not found"
-    fi
 fi
 
-echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> read EPSS db\033[0K\r"
+# check feeds
+if [ ! -f $FEEDS_FILE ]; then
+    error_exit "$FEEDS_FILE not found"
+fi
 
-# load EPSS
-declare -A EPSS_LIST
-while IFS=',' read -r cve epss _; do
-    EPSS_LIST["$cve"]="$epss"
-done < "$DB_FILE"
+echo -ne "  $(date +"%H:%M:%S") $IMAGE_LINK >>> read EPSS info\033[0K\r"
 
-# search cve in epss-db
-get_cve_info() {
-    local CVE="$1"
-    local EPSS="${EPSS_LIST[$CVE]:--}"
-    # output result
+get_epss_from_file() {
+    awk -F',' '
+    FNR==NR {cves[$1]=1; order[++n]=$1; next}
+    FNR<=2 {next}
+    ($1 in cves) {epss[$1]=$2}
+    END {for (i=1; i<=n; i++) {
+            cve=order[i]
+            print epss[cve]
+        }
+    }' $INPUT_FILE $FEEDS_FILE > $RES_FILE
+    # print result
     if [ "$DONT_OUTPUT_RESULT" == "false" ]; then
-        echo "$CVE: EPSS=$EPSS"
+        paste $INPUT_FILE $RES_FILE
     fi
-    echo "$EPSS" >> "$RES_FILE"
 }
 
 # single cve from argument
 if [ ! -z "$CVE" ]; then
-    get_cve_info $CVE
+    echo "$CVE" > "$INPUT_FILE"
+    get_epss_from_file
 # cve list from INPUT_FILE
 else
     if [ -f $INPUT_FILE ]; then
-        LIST_EPSS=(`awk '{print $1}' $INPUT_FILE`)
-        for (( i=0; i<${#LIST_EPSS[@]}; i++ ));
-        do
-           get_cve_info ${LIST_EPSS[$i]}
-        done
+        get_epss_from_file
     else
         error_exit "$INPUT_FILE not found"
     fi
