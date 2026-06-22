@@ -6,8 +6,6 @@ ENV GRYPE_DB_CACHE_DIR=/opt/db/grype \
 
 USER root
 
-COPY inthewild.json /opt/db/inthewild.json
-
 RUN TODAY=$(date -u +%F) \
   && YESTERDAY=$(date -u -d "-1 day" +%F) \
   && if curl -sSL --fail "https://epss.empiricalsecurity.com/epss_scores-${TODAY}.csv.gz" -o /tmp/epss.csv.gz; then \
@@ -27,6 +25,8 @@ RUN set -euo pipefail; \
   mv -f "/tmp/unpacked/packages/extended/yara-rules-extended.yar" "/opt/db/yara/rules.yar"; \
   yarac "/opt/db/yara/rules.yar" "/opt/db/yara/rules.yar.comp"; \
   rm -rf "/tmp/unpacked" "/tmp/yara-forge-rules-extended.zip"
+
+COPY inthewild.json /opt/db/inthewild.json
 
 RUN mkdir -p ${GRYPE_DB_CACHE_DIR} ${TRIVY_CACHE_DIR} \
   && grype db update \
