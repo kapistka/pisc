@@ -8,14 +8,16 @@ ENV CACHE_DIR=/opt/db \
 USER root
 
 RUN mkdir -p ${CACHE_DIR}; \
-  cp /home/nonroot/inthewild.json ${CACHE_DIR}/inthewild.json
+  cp /home/nonroot/inthewild.json ${CACHE_DIR}/inthewild.json;
+  curl -fsSL "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json" \
+    -o "${CACHE_DIR}/kev.json"
 
 RUN TODAY=$(date -u +%F) \
   && YESTERDAY=$(date -u -d "-1 day" +%F) \
-  && if curl -sSL --fail "https://epss.empiricalsecurity.com/epss_scores-${TODAY}.csv.gz" -o /tmp/epss.csv.gz; then \
+  && if curl -fsSL "https://epss.empiricalsecurity.com/epss_scores-${TODAY}.csv.gz" -o /tmp/epss.csv.gz; then \
   echo "Downloaded EPSS for ${TODAY}"; \
   else \
-  curl -sSL --fail "https://epss.empiricalsecurity.com/epss_scores-${YESTERDAY}.csv.gz" -o /tmp/epss.csv.gz && \
+  curl -fsSL "https://epss.empiricalsecurity.com/epss_scores-${YESTERDAY}.csv.gz" -o /tmp/epss.csv.gz && \
   echo "Downloaded EPSS for ${YESTERDAY}"; \
   fi \
   && zcat /tmp/epss.csv.gz > ${CACHE_DIR}/epss.csv \
