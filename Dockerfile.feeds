@@ -1,8 +1,8 @@
 FROM kapistka/pisc:v0.20.0
 
 ENV CACHE_DIR=/opt/db \
-  TRIVY_CACHE_DIR=${CACHE_DIR}/trivy \
-  GRYPE_DB_CACHE_DIR=${CACHE_DIR}/grype \
+  TRIVY_CACHE_DIR=/opt/db/trivy \
+  GRYPE_DB_CACHE_DIR=/opt/db/grype \
   GRYPE_DB_AUTO_UPDATE=false
 
 USER root
