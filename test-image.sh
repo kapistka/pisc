@@ -50,7 +50,7 @@ set +e
 docker run --rm \
     -v "$INPUT_FILE":$PISC_OUT_DIR"/images.txt" \
     "$IMAGE" \
-    /bin/bash /home/nonroot/scan.sh -delmy "$OFFLINE_FLAG" --virustotal-key "$VT_API_KEY" -f $PISC_OUT_DIR"/images.txt" \
+    /bin/bash -x /home/nonroot/scan.sh -delmy "$OFFLINE_FLAG" --virustotal-key "$VT_API_KEY" -f $PISC_OUT_DIR"/images.txt" \
     2>&1 | tee "$LOG_FILE"
 EXIT_CODE=$?
 set -e
