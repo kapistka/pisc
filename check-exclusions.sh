@@ -17,6 +17,7 @@
 #
 # - misconfig:
 #     - "*"
+#     - "cve-2025-31133-dev-null"
 #   image:
 #     - "docker.io/php:*"
 #
@@ -75,7 +76,7 @@ ERROR_FILE=$PISC_OUT_DIR'/check-exclusions.error'
 CSV_FILE=$PISC_OUT_DIR'/whitelist.csv'
 
 # if whitelist not found then exit 0
-if [ ! -f $PISC_EXCLUSIONS_FILE ]; then
+if [ ! -f "$PISC_EXCLUSIONS_FILE" ]; then
     exit 0
 fi
 
@@ -86,8 +87,20 @@ SEARCH_VALUE=''
 
 error_exit()
 {
-    printf "   $1" > $ERROR_FILE
+    printf '   %s' "$1" > "$ERROR_FILE"
     exit 2
+}
+
+matches_pattern()
+{
+    local search_value="$1"
+    local rule_value="$2"
+
+    # shellcheck disable=SC2254
+    case "$search_value" in
+        $rule_value) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 # read the options
@@ -127,12 +140,12 @@ declare -a VALUE_LIST
 declare -a IMAGE_LIST
 
 # csv cached and removed from parent script
-if [ ! -s $CSV_FILE ]; then
+if [ ! -s "$CSV_FILE" ]; then
     IMAGE_LIST=()
     KEY_LIST=()
     VALUE_LIST=()
     # convert yaml to csv
-    yq -o=json '.[]' $PISC_EXCLUSIONS_FILE | jq -r '.image[] as $image | to_entries[] | select(.key != "image") | [($image), .key, .value[]] | @csv' | tr -d '"' > $CSV_FILE \
+    yq -o=json '.[]' "$PISC_EXCLUSIONS_FILE" | jq -r '.image[] as $image | to_entries[] | select(.key != "image") | [($image), .key, .value[]] | @csv' | tr -d '"' > "$CSV_FILE" \
       || error_exit "check exclusions: yaml error"
     # read csv
     while IFS=, read -r image key value; do
@@ -146,22 +159,18 @@ if [ ! -s $CSV_FILE ]; then
         if [[ "$key" == "malware" ]] && [[ "$value" != "*" ]]; then
             error_exit "check exclusions: wrong format - malware should be * only"
         fi
-        if [[ "$key" == "misconfig" ]] && [[ "$value" != "*" ]]; then
-            error_exit "check exclusions: wrong format - misconfig should be * only"
-        fi
-
         IMAGE_LIST+=("$image")
         KEY_LIST+=("$key")
         VALUE_LIST+=("$value")
-    done < $CSV_FILE
-    > $CSV_FILE
+    done < "$CSV_FILE"
+    : > "$CSV_FILE"
     # write csv extended
     for (( i=0; i<${#IMAGE_LIST[@]}; i++ ));
     do
         IFS=',' read -r -a A <<< "${VALUE_LIST[$i]}"
         for (( j=0; j<${#A[@]}; j++ ));
         do
-            echo "${IMAGE_LIST[$i]},${KEY_LIST[$i]},${A[$j]}" >> $CSV_FILE
+            echo "${IMAGE_LIST[$i]},${KEY_LIST[$i]},${A[$j]}" >> "$CSV_FILE"
         done
     done
 fi
@@ -171,19 +180,19 @@ IMAGE_LIST=()
 VALUE_LIST=()
 while IFS=',' read -r image key value; do
     # read only SEARCH_KEY needed
-    if [[ $SEARCH_KEY == $key ]]; then
+    if [ "$SEARCH_KEY" = "$key" ]; then
         IMAGE_LIST+=("$image")
         VALUE_LIST+=("$value")
     fi
-done < $CSV_FILE
+done < "$CSV_FILE"
 
 # searching
 for (( i=0; i<${#IMAGE_LIST[@]}; i++ ));
 do
-    if [[ $IMAGE_LINK == ${IMAGE_LIST[$i]} ]]; then
+    if matches_pattern "$IMAGE_LINK" "${IMAGE_LIST[$i]}"; then
         if [[ $SEARCH_KEY == "cve" || $SEARCH_KEY == "package" || $SEARCH_KEY == "malware" || $SEARCH_KEY == "misconfig" ]]; then
             # use * pattern
-            if [[ $SEARCH_VALUE == ${VALUE_LIST[$i]} ]]; then
+            if matches_pattern "$SEARCH_VALUE" "${VALUE_LIST[$i]}"; then
                 exit 1
             fi
         elif [[ $SEARCH_KEY == "yara" ]]; then
